@@ -154,6 +154,7 @@ program mksurfdat
     real(r8), allocatable  :: pfert(:,:)         ! crop phosphorus fertilizer (g/m^2)
 
 
+
     type(domain_type) :: ldomain
 
     character(len=32) :: subname = 'mksrfdat'  ! program name
@@ -466,6 +467,7 @@ program mksurfdat
                nfert(ns_o,0:numpft)               , &
                pfert(ns_o,0:numpft)               )
 
+
     landfrac_pft(:)       = spval 
     pctlnd_pft(:)         = spval
     pftdata_mask(:)       = -999
@@ -511,6 +513,7 @@ program mksurfdat
     litho(:)              = spval
     nfert(:,:)            = 0._r8
     pfert(:,:)            = 0._r8
+
 
     ! ----------------------------------------------------------------------
     ! Open diagnostic output log file

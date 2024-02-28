@@ -94,6 +94,8 @@ _TESTS = {
             "ERS.f09_f09.IELM.elm-lnd_rof_2way",
             "ERS.r05_r05.IELM.elm-V2_ELM_MOSART_features",
             "ERS.ELM_USRDAT.IELM.elm-surface_water_dynamics"
+            "ERS.f09_f09.IELM.elm-solar_rad",
+            "ERS_Ld60.hcru_hcru.I20TRGSWCNPRDCTCBC.elm-erosion"
             )
         },
 
