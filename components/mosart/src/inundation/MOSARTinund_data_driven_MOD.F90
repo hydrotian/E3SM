@@ -78,8 +78,8 @@ MODULE MOSARTinund_data_driven_MOD
     subroutine calculate_volume_exchange(wr,wf,wr_bf,ff_unit,ff_fp,f_channel,Vcri)
 
         implicit none
-        real(r8), intent(inout) :: wr, wf
-        real(r8), intent(in)    :: wr_bf, ff_unit, ff_fp, f_channel
+        real(r8), intent(inout) :: wr, wf, ff_fp, ff_unit
+        real(r8), intent(in)    :: wr_bf, f_channel
         real(r8)                :: w_over     ! channel storage + floodplain storage - channel storage capacity (m^3).
         real(r8)                :: hbf_excess ! bankfull excess water depth
         real(r8), intent(in)    :: Vcri   ! critical volume, FF = 0 when Vtotal <= Vcri
