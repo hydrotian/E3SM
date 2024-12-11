@@ -69,7 +69,7 @@ for the CLM data in the CESM distribution
 <!-- inund -->
 <OPT_inund>1</OPT_inund>
 <OPT_trueDW>2</OPT_trueDW>
-<OPT_calcNr>1</OPT_calcNr>
+<OPT_calcNr>5</OPT_calcNr>
 <nr_max>0.05</nr_max>
 <nr_min>0.03</nr_min>
 <nr_uniform>0.04</nr_uniform>

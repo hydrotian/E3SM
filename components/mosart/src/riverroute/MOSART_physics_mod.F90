@@ -799,6 +799,10 @@ MODULE MOSART_physics_mod
     integer, intent(in) :: iunit,nt
     real(r8), intent(in) :: theDeltaT
     character(len=*),parameter :: subname = '(subnetworkRouting)'
+    real(r8) :: wt_max
+
+    wt_max = (TUnit%Gxr(iunit)*TUnit%area(iunit)-TUnit%rlen(iunit))*TUnit%twidth(iunit)*0.1_r8 
+    ! calculate the max storage of tributaries, assuming bankfull depth is 1m everywhere
 
     if(TUnit%tlen(iunit) <= TUnit%hlen(iunit)) then ! if no tributaries, not subnetwork channel routing
         TRunoff%etout(iunit,nt) = -TRunoff%etin(iunit,nt)
@@ -807,11 +811,20 @@ MODULE MOSART_physics_mod
     !   !     !TRunoff%vt(iunit,nt) = CRVRMAN(TUnit%tslp(iunit), TUnit%nt(iunit), TRunoff%rt(iunit,nt))
             TRunoff%vt(iunit,nt) = CRVRMAN_nosqrt(TUnit%tslpsqrt(iunit), TUnit%nt(iunit), TRunoff%rt(iunit,nt))
             TRunoff%etout(iunit,nt) = -TRunoff%vt(iunit,nt) * TRunoff%mt(iunit,nt)
-            if(TRunoff%wt(iunit,nt) + (TRunoff%etin(iunit,nt) + TRunoff%etout(iunit,nt)) * theDeltaT < TINYVALUE) then
+            if(TRunoff%wt(iunit,nt) + (TRunoff%etin(iunit,nt) + TRunoff%etout(iunit,nt)) * theDeltaT < TINYVALUE) then ! may add inundation process here
               TRunoff%etout(iunit,nt) = -(TRunoff%etin(iunit,nt) + TRunoff%wt(iunit,nt)/theDeltaT)
               if(TRunoff%mt(iunit,nt) > 0._r8) then
                  TRunoff%vt(iunit,nt) = -TRunoff%etout(iunit,nt)/TRunoff%mt(iunit,nt)
               end if
+    !        else
+    !           if (TRunoff%wt(iunit,nt) + (TRunoff%etin(iunit,nt) + TRunoff%etout(iunit,nt)) * theDeltaT > wt_max) then
+    !              print*,"tributaries overbank TZ", wt_max, TRunoff%wt(iunit,nt), TRunoff%etin(iunit,nt), TRunoff%etout(iunit,nt)
+    !              TRunoff%etout(iunit,nt) = -((wt_max - TRunoff%wt(iunit,nt))/theDeltaT)
+    !              print*,"tributaries etout TZ", rtmCTL%latc(iunit), rtmCTL%lonc(iunit), TRunoff%etout(iunit,nt)
+    !              if(TRunoff%mt(iunit,nt) > 0._r8) then
+    !                 TRunoff%vt(iunit,nt) = -TRunoff%etout(iunit,nt)/TRunoff%mt(iunit,nt)
+    !              end if
+    !           endif
             end if
         else
             TRunoff%etout(iunit,nt) = TRunoff%conc_t(iunit,nt)*TRunoff%etout(iunit,nt_nliq)

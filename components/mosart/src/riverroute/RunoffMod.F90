@@ -222,6 +222,7 @@ module RunoffMod
                                      !     2 -- use channel depth and exponent of 1/3 (Getirana et al. 2012 JHM); 
                                      !     3 -- use channel width (Decharme et al. 2010 JHM); 
                                      !     4 -- use one uniform value. 
+                                     !     5 -- use values from parameter file.
                                      !     (Please see MOSARTinund_preProcs.F90 for references.)
      real(r8) :: nr_max              ! Max Manning coefficient for channels (when OPT_calcNr = 1, 2, 3) ( s*m^(-1/3) ).
      real(r8) :: nr_min              ! Min Manning coefficient for channels (when OPT_calcNr = 1, 2, 3) ( s*m^(-1/3) ).

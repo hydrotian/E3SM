@@ -99,7 +99,7 @@ MODULE MOSARTinund_PreProcs_MOD
           TUnit%nr(iu) = Tctl%nr_uniform
         end if  
       enddo 
-      
+    
     endif
     
     ! ---------------------------------  
@@ -158,16 +158,16 @@ MODULE MOSARTinund_PreProcs_MOD
       do iu = rtmCTL%begr, rtmCTL%endr
         !if ( TUnit%mask( iu ) .gt. 0 ) then
         if ( rtmCTL%mask(iu) .eq. 1 .or. rtmCTL%mask(iu) .eq. 3 ) then   ! 1--Land; 3--Basin outlet (downstream is ocean).
-          do k = 1, 11
-            TUnit%e_eprof( iu, k ) = TUnit%e_eprof_in2( k, iu )
+          do k = 1, Tctl%npt_elevProf  ! This is hard-coded for 11 bands only, need to update!
+            TUnit%e_eprof( iu, k ) = TUnit%e_eprof_in2( k, iu )  ! This is the original elevation profile in the parameter file.
           end do
           !TUnit%e_eprof(iu,12) = TUnit%e_eprof_std(12)      ! The last point is hypothetical.
-          TUnit%e_eprof(iu,12) = Tctl%e_eprof_std(12)        ! The last point is hypothetical.
+          TUnit%e_eprof(iu,Tctl%npt_elevProf+1) = Tctl%e_eprof_std(12)        ! The last point is hypothetical.
         end if
       enddo
       
     ! 2 -- use the hypothetical elevation profile :
-    elseif ( Tctl%OPT_elevProf .eq. 2 ) then    
+    elseif ( Tctl%OPT_elevProf .eq. 2 ) then           
       
       do iu = rtmCTL%begr, rtmCTL%endr
         !if ( TUnit%mask( iu ) .gt. 0 ) then
@@ -175,8 +175,8 @@ MODULE MOSARTinund_PreProcs_MOD
           do k = 1, 12
             TUnit%e_eprof( iu, k ) = Tctl%e_eprof_std(k)
           end do        
-        end if  
-      enddo
+        end if   
+      enddo     
       
     end if
       

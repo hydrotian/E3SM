@@ -50,7 +50,7 @@ module RtmMod
   use WRM_type_mod    , only : ctlSubwWRM, WRMUnit, StorWater
   use WRM_subw_IO_mod , only : WRM_init, WRM_computeRelease
   use MOSARTinund_PreProcs_MOD, only : calc_chnlMannCoe, preprocess_elevProf
-  use MOSARTinund_Core_MOD    , only : MOSARTinund_simulate, ManningEq, ChnlFPexchg
+  use MOSARTinund_Core_MOD    , only : ManningEq, ChnlFPexchg
   use MOSART_Budgets_mod, only: MOSART_WaterBudget_Extraction, MOSART_WaterBudget_Print, MOSART_WaterBudget_Reset
   use RtmIO
   use mct_mod
@@ -312,7 +312,7 @@ contains
 
     OPT_inund = 0
     OPT_trueDW = 2
-    OPT_calcNr = 1                
+    OPT_calcNr = 5                
     nr_max = 0.05_r8              
     nr_min = 0.03_r8              
     nr_uniform = 0.04_r8          
@@ -2593,6 +2593,14 @@ contains
          endif
        endif
      
+     
+       !if (inundflag .and. wrmflag .eq. 0) then !use Luo's scheme when inundation is on and WM is off (keep it for now - tz)
+       !   call t_startf('mosartr_inund_sim')
+       !   call MOSARTinund_simulate ( )
+       !   call t_stopf('mosartr_inund_sim')
+       !else ! other cases
+       
+       
        !if (inundflag .and. wrmflag .eq. 0) then !use Luo's scheme when inundation is on and WM is off (keep it for now - tz)
        !   call t_startf('mosartr_inund_sim')
        !   call MOSARTinund_simulate ( )
@@ -3955,9 +3963,7 @@ contains
 
      allocate(TUnit%nr(begr:endr))
 
-     if (inundflag) then
-        if (use_linear_inund) then
-            !!allocate(TUnit%nr(begr:endr))   !(Repetitive, removed on 6-1-17. --Inund.)
+        if (.not. inundflag .or. Tctl%OPT_calcNr .eq. 5) then
             ier = pio_inq_varid(ncid, name='nr', vardesc=vardesc)
             call pio_read_darray(ncid, vardesc, iodesc_dbl, TUnit%nr, ier)
             if (masterproc) write(iulog,FORMR) trim(subname),' read nr ',minval(Tunit%nr),maxval(Tunit%nr)
@@ -3966,14 +3972,7 @@ contains
             ! Calculate channel Manning roughness coefficients :
             call calc_chnlMannCoe ( )
         endif
-     else
-        !!allocate(TUnit%nr(begr:endr))   !(Repetitive, removed on 6-1-17. --Inund.)
-        ier = pio_inq_varid(ncid, 'nr', vardesc)
-        call pio_read_darray(ncid, vardesc, iodesc_dbl, TUnit%nr, ier)
-        if (masterproc) write(iulog,FORMR) trim(subname),' read nr ',minval(Tunit%nr),maxval(Tunit%nr)
-        call shr_sys_flush(iulog)
-     endif
-
+     
      if (inundflag .or. use_linear_inund) then
 
         !----------------------------------   
@@ -4148,7 +4147,7 @@ contains
        endif
 
        ! Read linear inundation model parameters 
-       if (use_linear_inund) then
+      ! if (use_linear_inund) then
           allocate(TUnit%linear_a(begr:endr))  
           ier = pio_inq_varid(ncid, name='a', vardesc=vardesc)
           call pio_read_darray(ncid, vardesc, iodesc_dbl, TUnit%linear_a, ier)
@@ -4166,7 +4165,7 @@ contains
           call pio_read_darray(ncid, vardesc, iodesc_dbl, TUnit%linear_vcri, ier)
           if (masterproc) write(iulog,FORMR) trim(subname),' read linear inundation scheme v',minval(Tunit%linear_vcri),maxval(Tunit%linear_vcri)
           call shr_sys_flush(iulog)
-       endif
+      ! endif
 
      end if  ! inundflag
 
@@ -4802,7 +4801,7 @@ contains
       deallocate(ele)
       call pio_freedecomp(ncid, iodesc)
 
-    else
+    else ! old scheme to read in ele prof
 
       do n = 1, Tctl%npt_elevProf
 
