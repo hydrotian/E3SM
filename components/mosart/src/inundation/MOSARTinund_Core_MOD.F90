@@ -107,7 +107,7 @@ MODULE MOSARTinund_Core_MOD
             (TRunoff%hf_ini(iu) .gt. con1Em3 .and. TRunoff%hf_ini(iu) .gt. TRunoff%yr( iu, 1 ) - TUnit%rdepth(iu) + con1Em3)) then
 
           wr_rcd = TRunoff%wr( iu, 1 )
-          Vcri = TUnit%wr_bf(iu)*TUnit%linear_a(iu)
+          Vcri = TUnit%wr_bf(iu)*TUnit%linear_vcri(iu)
           ! Calculate w_over ( = channel storage + floodplain storage - channel storage capacity ) :
           w_over = TRunoff%wr( iu, 1 ) + TRunoff%wf_ini( iu ) - Vcri
         
@@ -148,7 +148,7 @@ MODULE MOSARTinund_Core_MOD
                 hf = TUnit%e_eprof3(iu, j) + d_e
                 exit
               endif
-            enddo
+            enddo         
           
             ! Channel water storage between final water level and banktop :
             wr_over = hf * TUnit%rwidth( iu ) * TUnit%rlen( iu )            
@@ -219,6 +219,22 @@ MODULE MOSARTinund_Core_MOD
           TRunoff%netchange( iu ) = 0._r8
         end if    ! if ( the channel water level is higher than the floodplain water level, or on the contrary )
       end if      ! if ( TUnit%mask( iu ) .gt. 0 )
+      
+      if (rtmCTL%latc(iu) == 60.25_r8 .and. rtmCTL%lonc(iu) == -106.25_r8) then
+        write(iulog,*) trim(subname), 'Debugging ChnlFPexchg for gridcell:', rtmCTL%latc(iu), rtmCTL%lonc(iu)
+        write(iulog,*) trim(subname), 'Channel storage:', TRunoff%wr(iu, 1)
+        write(iulog,*) trim(subname), 'Floodplain storage:', TRunoff%wf_ini(iu)
+        write(iulog,*) trim(subname), 'Vcri:', Vcri
+        write(iulog,*) trim(subname), 'w_over:', w_over
+        write(iulog,*) trim(subname), 'Flooded fraction:', ff_unit
+        write(iulog,*) trim(subname), 'Final channel storage:', TRunoff%wr_exchg(iu)
+        write(iulog,*) trim(subname), 'Final floodplain storage:', TRunoff%wf_exchg(iu)
+        write(iulog,*) trim(subname), ' : a_eprof3 ', TUnit%a_eprof3(iu, 1:TUnit%npt_eprof3(iu))
+        write(iulog,*) trim(subname), ' : e_eprof3 ', TUnit%e_eprof3(iu, 1:TUnit%npt_eprof3(iu))
+        write(iulog,*) trim(subname), ' : s_eprof3 ', TUnit%s_eprof3(iu, 1:TUnit%npt_eprof3(iu))
+        write(iulog,*) trim(subname), ' : e_eprof ', TUnit%e_eprof(iu, 1:TUnit%npt_eprof3(iu))
+      endif 
+
     end do
     !$OMP END PARALLEL DO
     
