@@ -34,6 +34,8 @@ module rof_comp_mct
   use perf_mod         , only : t_startf, t_stopf, t_barrierf
 
   use WRM_type_mod     , only : StorWater
+  use iac2rofMod       , only : iac2rof_type
+  use rof2iacMod       , only : rof2iac_type
 
   use rof_cpl_indices  , only : rof_cpl_indices_set, nt_rtm, rtm_tracers, &
                                 index_x2r_Flrl_rofsur, index_x2r_Flrl_rofi, &
@@ -60,7 +62,13 @@ module rof_comp_mct
                                 index_x2r_coszen_str, &
                                 index_r2x_Flrr_supply, index_r2x_Flrr_deficit, &
                                 index_r2x_Sr_h2orof, index_r2x_Sr_frac_h2orof, &
-                                index_x2r_Flrl_inundinf
+                                index_x2r_Flrl_inundinf, &
+                                index_x2r_Sz_demand_irrig, index_x2r_Sz_demand_indust, &
+                                index_x2r_Sz_demand_munic, index_x2r_Sz_demand_energy, &
+                                index_x2r_Sz_demand_total, index_x2r_Sz_consump_frac, &
+                                index_r2x_Sr_wr_avail, index_r2x_Sr_wt_avail, &
+                                index_r2x_Sr_wtot_avail, index_r2x_Sr_reservoir_stor, &
+                                index_r2x_Sr_streamflow
 
   use mct_mod
   use ESMF
@@ -99,6 +107,10 @@ module rof_comp_mct
   real (r8) , allocatable, private :: x2r_rm(:,:)  !  moab fields, similar to x2r_r transpose ! used in import from coupler
 #endif
 ! PRIVATE DATA MEMBERS:
+
+  ! IAC-MOSART coupling objects
+  type(iac2rof_type), private :: iac2rof          ! IAC -> MOSART coupling data
+  type(rof2iac_type), private :: rof2iac          ! MOSART -> IAC coupling data
 
 ! REVISION HISTORY:
 ! Author: Mariana Vertenstein
@@ -303,10 +315,14 @@ contains
        call mct_aVect_init(x2r_r, rList=seq_flds_x2r_fields, lsize=lsize)
        call mct_aVect_zero(x2r_r)
 
-       ! Initialize mosart -> ocn attribute vector        
+       ! Initialize mosart -> ocn attribute vector
        call mct_aVect_init(r2x_r, rList=seq_flds_r2x_fields, lsize=lsize)
-       call mct_aVect_zero(r2x_r) 
-       
+       call mct_aVect_zero(r2x_r)
+
+       ! Initialize IAC-MOSART coupling objects
+       call iac2rof%Init(begr, endr)
+       call rof2iac%Init(begr, endr)
+
        ! Create mct river runoff export state
        call rof_export_mct( r2x_r )
 
@@ -821,6 +837,24 @@ contains
         enddo
     end if
 
+    ! Import IAC (GCAM) water demand if coupling is enabled
+    if (index_x2r_Sz_demand_total > 0) then
+       do n = begr,endr
+          n2 = n - begr + 1
+          ! Import annual water demand (m3/year) from IAC
+          iac2rof%demand_irrig(n)  = x2r_r%rAttr(index_x2r_Sz_demand_irrig,n2)
+          iac2rof%demand_indust(n) = x2r_r%rAttr(index_x2r_Sz_demand_indust,n2)
+          iac2rof%demand_munic(n)  = x2r_r%rAttr(index_x2r_Sz_demand_munic,n2)
+          iac2rof%demand_energy(n) = x2r_r%rAttr(index_x2r_Sz_demand_energy,n2)
+          iac2rof%demand_total(n)  = x2r_r%rAttr(index_x2r_Sz_demand_total,n2)
+          iac2rof%consump_frac(n)  = x2r_r%rAttr(index_x2r_Sz_consump_frac,n2)
+       enddo
+
+       ! Convert IAC demand to MOSART rate (m3/s) and apply to MOSART arrays
+       call iac2rof%update_iac2rof(begr, endr, TRunoff%qdem_gcam, &
+                                   TRunoff%qdem_total, TRunoff%consump_frac)
+    endif
+
   end subroutine rof_import_mct
 
 !====================================================================================
@@ -961,6 +995,28 @@ contains
         r2x_r%rattr(index_r2x_Sr_h2orof,ni)      = rtmCTL%inundwf(n) / (rtmCTL%area(n)*0.001_r8) ! m^3 to mm
         r2x_r%rattr(index_r2x_Sr_frac_h2orof,ni) = rtmCTL%inundff(n)
       enddo
+    endif
+
+    ! Export water availability to IAC (GCAM) if coupling is enabled
+    if (index_r2x_Sr_wtot_avail > 0) then
+       ! Calculate water availability metrics from MOSART state
+       ! Note: This should be called after annual accumulation/averaging
+       ! The driver will handle proper temporal aggregation
+       call rof2iac%update_rof2iac(rtmCTL%begr, rtmCTL%endr, &
+                                    TRunoff%wr, TRunoff%wt, TRunoff%wh, &
+                                    TRunoff%erlateral, StorWater%Storage, &
+                                    accum_time=0.0_r8)
+
+       ! Export water availability fields to IAC
+       ni = 0
+       do n = rtmCTL%begr, rtmCTL%endr
+          ni = ni + 1
+          r2x_r%rattr(index_r2x_Sr_wr_avail,ni)      = rof2iac%wr_avail(n)
+          r2x_r%rattr(index_r2x_Sr_wt_avail,ni)      = rof2iac%wt_avail(n)
+          r2x_r%rattr(index_r2x_Sr_wtot_avail,ni)    = rof2iac%wtot_avail(n)
+          r2x_r%rattr(index_r2x_Sr_reservoir_stor,ni) = rof2iac%reservoir_stor(n)
+          r2x_r%rattr(index_r2x_Sr_streamflow,ni)    = rof2iac%streamflow(n)
+       enddo
     endif
 
   end subroutine rof_export_mct

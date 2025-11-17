@@ -457,7 +457,9 @@ module cime_comp_mod
 
   logical  :: iac_c2_lnd             ! .true.  => iac to lnd coupling on
   logical  :: iac_c2_atm             ! .true.  => iac to atm coupling on
+  logical  :: iac_c2_rof             ! .true.  => iac to rof coupling on
   logical  :: lnd_c2_iac             ! .true.  => lnd to iac coupling on
+  logical  :: rof_c2_iac             ! .true.  => rof to iac coupling on
 
   logical  :: dead_comps             ! .true.  => dead components
   logical  :: esmf_map_flag          ! .true.  => use esmf for mapping
@@ -1778,7 +1780,9 @@ contains
     wav_c2_ocn = .false.
     iac_c2_atm = .false.
     iac_c2_lnd = .false.
+    iac_c2_rof = .false.
     lnd_c2_iac = .false.
+    rof_c2_iac = .false.
 
     if (atm_present) then
        if (lnd_prognostic) atm_c2_lnd = .true.
@@ -1813,6 +1817,10 @@ contains
        if (lnd_prognostic   ) rof_c2_lnd = .true.
        if (ocnrof_prognostic) rof_c2_ocn = .true.
        if (rofice_present .and. iceberg_prognostic) rof_c2_ice = .true.
+       if (iac_prognostic) rof_c2_iac = .true.
+    endif
+    if (iac_present) then
+       if (rof_prognostic) iac_c2_rof = .true.
     endif
     if (glc_present) then
        if (glclnd_present .and. lnd_prognostic) glc_c2_lnd = .true.
@@ -1898,6 +1906,8 @@ contains
        write(logunit,F0L)'lnd_c2_rof            = ',lnd_c2_rof
        write(logunit,F0L)'lnd_c2_glc            = ',lnd_c2_glc
        write(logunit,F0L)'lnd_c2_iac            = ',lnd_c2_iac
+       write(logunit,F0L)'rof_c2_iac            = ',rof_c2_iac
+       write(logunit,F0L)'iac_c2_rof            = ',iac_c2_rof
        write(logunit,F0L)'ocn_c2_atm            = ',ocn_c2_atm
        write(logunit,F0L)'ocn_c2_glcshelf       = ',ocn_c2_glcshelf
        write(logunit,F0L)'ocn_c2_glctf          = ',ocn_c2_glctf
@@ -2060,7 +2070,7 @@ contains
 
        call prep_wav_init(infodata, atm_c2_wav, ocn_c2_wav, ice_c2_wav)
 
-       call prep_iac_init(infodata, lnd_c2_iac)
+       call prep_iac_init(infodata, lnd_c2_iac, rof_c2_iac)
 
        if (drv_threading) call seq_comm_setnthreads(nthreads_GLOID)
        call t_adj_detailf(-2)
@@ -4135,12 +4145,18 @@ contains
                            ymd, tod
 
           call prep_iac_accum_avg(timer='CPL:iacprep_l2xavg')
+          if (rof_c2_iac) call prep_iac_accum_avg_rof(timer='CPL:iacprep_r2xavg')
        endif
 
        ! Setup lnd inputs on iac grid.  Right now I think they will be the same
        ! thing, but I'm trying to code for the general case
        if (lnd_c2_iac) then
           call prep_iac_calc_l2x_zx(timer='CPL:iacprep_lnd2iac')
+       endif
+
+       ! Setup rof inputs on iac grid
+       if (rof_c2_iac) then
+          call prep_iac_calc_r2x_zx(timer='CPL:iacprep_rof2iac')
        endif
 
        call prep_iac_mrg(infodata, timer_mrg='CPL:iacprep_mrgx2z')
@@ -4580,6 +4596,7 @@ contains
        if (rof_c2_lnd) call prep_lnd_calc_r2x_lx(timer='CPL:rofpost_rof2lnd')
        if (rof_c2_ice) call prep_ice_calc_r2x_ix(timer='CPL:rofpost_rof2ice')
        if (rof_c2_ocn) call prep_ocn_calc_r2x_ox(timer='CPL:rofpost_rof2ocn')
+       if (rof_c2_iac) call prep_iac_accum_rof(timer='CPL:rofpost_accr2z')
 
        call t_drvstopf  ('CPL:ROFRUNPOST', cplrun=.true.)
 

@@ -6,7 +6,7 @@ module prep_iac_mod
   use shr_kind_mod,     only: cl => SHR_KIND_CL
   use shr_kind_mod,     only: cxx => SHR_KIND_CXX
   use shr_sys_mod,      only: shr_sys_abort, shr_sys_flush
-  use seq_comm_mct,     only: num_inst_lnd, num_inst_iac, num_inst_frc
+  use seq_comm_mct,     only: num_inst_lnd, num_inst_iac, num_inst_frc, num_inst_rof
   use seq_comm_mct,     only: CPLID, IACID, logunit
   use seq_comm_mct,     only: seq_comm_getData=>seq_comm_setptrs
   use seq_infodata_mod, only: seq_infodata_type, seq_infodata_getdata
@@ -18,7 +18,7 @@ module prep_iac_mod
   use mct_mod
   use perf_mod
   use component_type_mod, only: component_get_x2c_cx, component_get_c2x_cx
-  use component_type_mod, only: iac, lnd, atm
+  use component_type_mod, only: iac, lnd, atm, rof
 
   implicit none
   save
@@ -44,6 +44,15 @@ module prep_iac_mod
   public :: prep_iac_get_mapper_Sl2z
   public :: prep_iac_get_mapper_Sa2z
 
+  ! MOSART-IAC coupling
+  public :: prep_iac_accum_rof
+  public :: prep_iac_accum_avg_rof
+  public :: prep_iac_calc_r2x_zx
+  public :: prep_iac_get_r2x_zx
+  public :: prep_iac_get_r2zacc_rx
+  public :: prep_iac_get_r2zacc_rx_cnt
+  public :: prep_iac_get_mapper_Sr2z
+
   !--------------------------------------------------------------------------
   ! Private interfaces
   !--------------------------------------------------------------------------
@@ -55,17 +64,24 @@ module prep_iac_mod
   ! mappers
   type(seq_map), pointer :: mapper_Sl2z
   type(seq_map), pointer :: mapper_Sa2z
+  type(seq_map), pointer :: mapper_Sr2z  ! MOSART to IAC mapper
 
-  ! attribute vectors
+  ! attribute vectors - land
   type(mct_aVect), pointer :: l2x_zx(:) ! Lnd export, iac grid, cpl pes
-  ! - allocated where - driver?
 
-  ! accumulation variables
+  ! accumulation variables - land
   type(mct_aVect), pointer :: l2zacc_lx(:)   ! lnd export, lnd grid, cpl pes
   integer        , target  :: l2zacc_lx_cnt  ! l2zacc_lx: number of time samples accumulated
 
   ! This holds our max of monthly averages
   type(mct_aVect), pointer :: l2zmax_lx(:)   ! lnd export, lnd grid, cpl pes
+
+  ! attribute vectors - MOSART
+  type(mct_aVect), pointer :: r2x_zx(:) ! MOSART export, iac grid, cpl pes
+
+  ! accumulation variables - MOSART
+  type(mct_aVect), pointer :: r2zacc_rx(:)   ! MOSART export, rof grid, cpl pes
+  integer        , target  :: r2zacc_rx_cnt  ! r2zacc_rx: number of time samples accumulated
 
   ! other module variables
   integer :: mpicom_CPLID                            ! MPI cpl communicator
@@ -76,7 +92,7 @@ contains
 
   !================================================================================================
 
-  subroutine prep_iac_init(infodata, lnd_c2_iac)
+  subroutine prep_iac_init(infodata, lnd_c2_iac, rof_c2_iac)
 
     !---------------------------------------------------------------
     ! Description
@@ -86,21 +102,25 @@ contains
     ! Arguments
     type(seq_infodata_type) , intent(in)    :: infodata
     logical                 , intent(in)    :: lnd_c2_iac ! .true.  => lnd to iac coupling on
+    logical                 , intent(in)    :: rof_c2_iac ! .true.  => rof to iac coupling on
     !
     ! Local Variables
-    integer                  :: lsize_z, lsize_l
-    integer                  :: eli,erl
+    integer                  :: lsize_z, lsize_l, lsize_r
+    integer                  :: eli, erl, eri
     logical                  :: samegrid_lz   ! samegrid land and iac
     logical                  :: samegrid_az   ! samegrid atm and iac
+    logical                  :: samegrid_rz   ! samegrid rof and iac
     logical                  :: lnd_present   ! .true. => land is present
     logical                  :: iac_present   ! .true. => iac is present
     logical                  :: atm_present   ! .true. => atm is present
+    logical                  :: rof_present   ! .true. => rof is present
     logical                  :: iamroot_CPLID ! .true. => CPLID masterproc
     logical                  :: esmf_map_flag ! .true. => use esmf for mapping
     character(CL)            :: lnd_gnam      ! lnd grid
     character(CL)            :: iac_gnam      ! iac grid
     character(CL)            :: atm_gnam      ! atm grid
-    type(mct_avect), pointer :: z2x_zx, x2z_zx, l2x_lx
+    character(CL)            :: rof_gnam      ! rof grid
+    type(mct_avect), pointer :: z2x_zx, x2z_zx, l2x_lx, r2x_rx
     character(*), parameter  :: subname = '(prep_iac_init)'
     character(*), parameter  :: F00 = "('"//subname//" : ', 4A )"
     !---------------------------------------------------------------
@@ -108,15 +128,18 @@ contains
          lnd_present=lnd_present,       &
          iac_present=iac_present,       &
          atm_present=atm_present,       &
+         rof_present=rof_present,       &
          lnd_gnam=lnd_gnam,             &
          iac_gnam=iac_gnam,             &
          atm_gnam=atm_gnam,             &
+         rof_gnam=rof_gnam,             &
          esmf_map_flag=esmf_map_flag)
 
 
     if (iac_present) then
        allocate(mapper_Sl2z)
        allocate(mapper_Sa2z)
+       allocate(mapper_Sr2z)
 
        z2x_zx => component_get_c2x_cx(iac(1))
        lsize_z = mct_aVect_lsize(z2x_zx)
@@ -125,6 +148,12 @@ contains
        do eli = 1,num_inst_lnd
           call mct_avect_init(l2x_zx(eli), rList=seq_flds_l2x_fields, lsize=lsize_z)
           call mct_avect_zero(l2x_zx(eli))
+       end do
+
+       allocate(r2x_zx(num_inst_rof))
+       do eri = 1,num_inst_rof
+          call mct_avect_init(r2x_zx(eri), rList=seq_flds_r2x_fields, lsize=lsize_z)
+          call mct_avect_zero(r2x_zx(eri))
        end do
     end if
 
@@ -184,6 +213,47 @@ contains
        call seq_map_init_rcfile(mapper_Sa2z, atm(1), iac(1), &
           'seq_maps.rc','atm2iac_smapname:','atm2iac_smaptype:',samegrid_az, &
            string='mapper_Sa2z initialization',esmf_map=esmf_map_flag)
+       call shr_sys_flush(logunit)
+    end if
+
+    ! MOSART-IAC coupling initialization
+    if (iac_present .and. rof_present) then
+       if (.not. allocated(mpicom_CPLID)) then
+          call seq_comm_getData(CPLID, &
+               mpicom=mpicom_CPLID, iamroot=iamroot_CPLID)
+       end if
+
+       ! iac imports
+       x2z_zx => component_get_x2c_cx(iac(1))
+       lsize_z = mct_aVect_lsize(x2z_zx)
+
+       ! rof exports
+       r2x_rx => component_get_c2x_cx(rof(1))
+       lsize_r = mct_aVect_lsize(r2x_rx)
+
+       ! Create accumulator avect on the rof grid
+       allocate(r2zacc_rx(num_inst_rof))
+
+       do eri = 1,num_inst_rof
+          call mct_aVect_initSharedFields(r2x_rx, x2z_zx, r2zacc_rx(eri), lsize=lsize_r)
+          call mct_aVect_zero(r2zacc_rx(eri))
+       end do
+
+       r2zacc_rx_cnt = 0
+
+       samegrid_rz = .true.
+       if (trim(rof_gnam) /= trim(iac_gnam)) samegrid_rz = .false.
+
+       if (rof_c2_iac) then
+          if (iamroot_CPLID) then
+             write(logunit,*) ' '
+             write(logunit,F00) 'Initializing mapper_Sr2z'
+          end if
+
+          call seq_map_init_rcfile(mapper_Sr2z, rof(1), iac(1), &
+               'seq_maps.rc','rof2iac_smapname:','rof2iac_smaptype:',samegrid_rz, &
+               string='mapper_Sr2z initialization',esmf_map=esmf_map_flag)
+       end if
        call shr_sys_flush(logunit)
     end if
 
@@ -434,4 +504,116 @@ contains
     type(seq_map), pointer :: prep_iac_get_mapper_Sa2z
     prep_iac_get_mapper_Sa2z => mapper_Sa2z
   end function prep_iac_get_mapper_Sa2z
+
+  !================================================================================================
+  ! MOSART-IAC coupling functions
+  !================================================================================================
+
+  subroutine prep_iac_accum_rof(timer)
+
+    !---------------------------------------------------------------
+    ! Description
+    ! Accumulate MOSART input to IAC
+    ! This will lead to a yearly average of MOSART values
+    !
+    ! Arguments
+    character(len=*), intent(in) :: timer
+    !
+    ! Local Variables
+    integer :: eri
+    type(mct_aVect), pointer :: r2x_rx
+    character(*), parameter  :: subname = '(prep_iac_accum_rof)'
+    !---------------------------------------------------------------
+    call t_drvstartf (trim(timer),barrier=mpicom_CPLID)
+    do eri = 1,num_inst_rof
+       r2x_rx => component_get_c2x_cx(rof(eri))
+       if (r2zacc_rx_cnt == 0) then
+          call mct_avect_copy(r2x_rx, r2zacc_rx(eri))
+       else
+          ! Add the current field values to the iac accumulator avect
+          call mct_avect_accum(r2x_rx, r2zacc_rx(eri))
+       endif
+    end do
+    r2zacc_rx_cnt = r2zacc_rx_cnt + 1
+    call t_drvstopf (trim(timer))
+
+  end subroutine prep_iac_accum_rof
+
+  !================================================================================================
+
+  subroutine prep_iac_accum_avg_rof(timer)
+
+    !---------------------------------------------------------------
+    ! Description
+    ! Finalize accumulation of MOSART input to IAC component
+    ! Calculate annual average
+    !
+    ! Arguments
+    character(len=*), intent(in) :: timer
+    !
+    ! Local Variables
+    integer :: ezi, eri
+    character(*), parameter :: subname = '(prep_iac_accum_avg_rof)'
+    !---------------------------------------------------------------
+    call t_drvstartf (trim(timer),barrier=mpicom_CPLID)
+    if (r2zacc_rx_cnt > 1 ) then
+       do eri = 1,num_inst_rof
+          call mct_avect_avg(r2zacc_rx(eri),r2zacc_rx_cnt)
+          call mct_avect_info(4,r2zacc_rx(eri),istr='TRS r2zacc')
+       end do
+    endif
+    r2zacc_rx_cnt = 0
+    call t_drvstopf (trim(timer))
+
+  end subroutine prep_iac_accum_avg_rof
+
+  !================================================================================================
+
+  subroutine prep_iac_calc_r2x_zx(timer)
+    !---------------------------------------------------------------
+    ! Description
+    ! Create r2x_zx (note that r2x_zx is a local module variable)
+    !
+    ! Arguments
+    character(len=*), intent(in) :: timer
+    !
+    ! Local Variables
+    integer :: eri, ezi
+    character(*), parameter :: subname = '(prep_iac_calc_r2x_zx)'
+    !---------------------------------------------------------------
+
+    call t_drvstartf (trim(timer),barrier=mpicom_CPLID)
+    do eri = 1,num_inst_rof
+       ezi = mod((eri-1), num_inst_iac) + 1
+       ! Map the accumulated MOSART data to IAC grid
+       call seq_map_map(mapper_Sr2z, r2zacc_rx(eri), r2x_zx(ezi),&
+          fldlist=seq_flds_r2z_states, norm=.true.)
+    enddo
+
+    call t_drvstopf  (trim(timer))
+
+  end subroutine prep_iac_calc_r2x_zx
+
+  !================================================================================================
+
+  function prep_iac_get_r2x_zx()
+    type(mct_aVect), pointer :: prep_iac_get_r2x_zx(:)
+    prep_iac_get_r2x_zx => r2x_zx(:)
+  end function prep_iac_get_r2x_zx
+
+  function prep_iac_get_r2zacc_rx()
+    type(mct_aVect), pointer :: prep_iac_get_r2zacc_rx(:)
+    prep_iac_get_r2zacc_rx => r2zacc_rx(:)
+  end function prep_iac_get_r2zacc_rx
+
+  function prep_iac_get_r2zacc_rx_cnt()
+    integer, pointer :: prep_iac_get_r2zacc_rx_cnt
+    prep_iac_get_r2zacc_rx_cnt => r2zacc_rx_cnt
+  end function prep_iac_get_r2zacc_rx_cnt
+
+  function prep_iac_get_mapper_Sr2z()
+    type(seq_map), pointer :: prep_iac_get_mapper_Sr2z
+    prep_iac_get_mapper_Sr2z => mapper_Sr2z
+  end function prep_iac_get_mapper_Sr2z
+
 end module prep_iac_mod
