@@ -114,6 +114,13 @@ module RunoffMod
      real(r8), pointer :: qdto(:,:)        ! coupler diret-to-ocean forcing [m3/s]
      real(r8), pointer :: qdem(:,:)        ! coupler total demand diagnostic [m3/s]
 
+     ! GCAM water demand (m3/s)
+     real(r8), pointer :: qdem_gcam(:,:) => null()  ! GCAM demand by sector (nr, nsectors)
+     real(r8), pointer :: qdem_total(:) => null()    ! Total GCAM demand (m3/s)
+     real(r8), pointer :: consump_frac(:) => null()  ! Consumptive fraction (0-1)
+     real(r8), pointer :: supply_gcam(:,:) => null() ! Supply by sector (m3/s)
+     real(r8), pointer :: deficit_gcam(:,:) => null() ! Deficit by sector (m3/s)
+
      !    - outputs
      real(r8), pointer :: flood(:)         ! coupler return flood water sent back to clm [m3/s]
      real(r8), pointer :: runoff(:,:)      ! coupler return mosart basin derived flow [m3/s]

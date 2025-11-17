@@ -163,6 +163,9 @@ module seq_flds_mod
   logical            :: ocn_rof_two_way     ! .true. if river-ocean two-way coupling turned on
   logical            :: rof_sed             ! .true. if river model includes sediment
   logical            :: add_iac_to_cplstate  ! .true. if iac fields are added to coupler history files
+  logical            :: iac_present         ! .true. if IAC component is present
+  logical            :: rof_c2_iac          ! .true. if MOSART-to-IAC coupling turned on
+  logical            :: iac_c2_rof          ! .true. if IAC-to-MOSART coupling turned on
   character(len=CS)  :: wav_ocn_coup     ! 'twoway' if wave-ocean two-way coupling turned on
 
   !----------------------------------------------------------------------------
@@ -241,6 +244,10 @@ module seq_flds_mod
   character(CXX) :: seq_flds_z2x_states
   character(CXX) :: seq_flds_z2x_fluxes
   character(CXX) :: seq_flds_x2z_fluxes
+
+  ! MOSART-IAC coupling fields
+  character(CXX) :: seq_flds_r2z_states  ! MOSART to IAC (water availability)
+  character(CXX) :: seq_flds_z2r_fluxes  ! IAC to MOSART (water demand)
 
   !----------------------------------------------------------------------------
   ! combined state/flux fields
@@ -378,6 +385,10 @@ contains
     character(CXX) :: z2x_fluxes = ''
     character(CXX) :: x2z_states = ''
     character(CXX) :: x2z_fluxes = ''
+
+    ! MOSART-IAC coupling
+    character(CXX) :: r2z_states = ''
+    character(CXX) :: z2r_fluxes = ''
 
     character(CXX) :: stringtmp  = ''
 
@@ -2420,6 +2431,88 @@ contains
       call metadata_set(attname, longname, stdname, units)
     endif
 
+    ! MOSART-IAC water management coupling
+    if (iac_present .and. rof_c2_iac) then
+      call seq_flds_add(r2z_states, 'Sr_wr_avail')
+      longname = 'Main channel water availability'
+      stdname  = 'rtm_wr_avail'
+      units    = 'm3'
+      attname  = 'Sr_wr_avail'
+      call metadata_set(attname, longname, stdname, units)
+
+      call seq_flds_add(r2z_states, 'Sr_wt_avail')
+      longname = 'Tributary water availability'
+      stdname  = 'rtm_wt_avail'
+      units    = 'm3'
+      attname  = 'Sr_wt_avail'
+      call metadata_set(attname, longname, stdname, units)
+
+      call seq_flds_add(r2z_states, 'Sr_wtot_avail')
+      longname = 'Total surface water availability'
+      stdname  = 'rtm_wtot_avail'
+      units    = 'm3'
+      attname  = 'Sr_wtot_avail'
+      call metadata_set(attname, longname, stdname, units)
+
+      call seq_flds_add(r2z_states, 'Sr_reservoir_stor')
+      longname = 'Reservoir storage capacity'
+      stdname  = 'rtm_reservoir_stor'
+      units    = 'm3'
+      attname  = 'Sr_reservoir_stor'
+      call metadata_set(attname, longname, stdname, units)
+
+      call seq_flds_add(r2z_states, 'Sr_streamflow')
+      longname = 'Annual mean streamflow'
+      stdname  = 'rtm_streamflow'
+      units    = 'm3 s-1'
+      attname  = 'Sr_streamflow'
+      call metadata_set(attname, longname, stdname, units)
+    endif
+
+    if (iac_present .and. iac_c2_rof) then
+      call seq_flds_add(z2r_fluxes, 'Sz_demand_irrig')
+      longname = 'Irrigation water demand from IAC'
+      stdname  = 'iac_demand_irrig'
+      units    = 'm3 year-1'
+      attname  = 'Sz_demand_irrig'
+      call metadata_set(attname, longname, stdname, units)
+
+      call seq_flds_add(z2r_fluxes, 'Sz_demand_indust')
+      longname = 'Industrial water demand from IAC'
+      stdname  = 'iac_demand_indust'
+      units    = 'm3 year-1'
+      attname  = 'Sz_demand_indust'
+      call metadata_set(attname, longname, stdname, units)
+
+      call seq_flds_add(z2r_fluxes, 'Sz_demand_munic')
+      longname = 'Municipal water demand from IAC'
+      stdname  = 'iac_demand_munic'
+      units    = 'm3 year-1'
+      attname  = 'Sz_demand_munic'
+      call metadata_set(attname, longname, stdname, units)
+
+      call seq_flds_add(z2r_fluxes, 'Sz_demand_energy')
+      longname = 'Energy/cooling water demand from IAC'
+      stdname  = 'iac_demand_energy'
+      units    = 'm3 year-1'
+      attname  = 'Sz_demand_energy'
+      call metadata_set(attname, longname, stdname, units)
+
+      call seq_flds_add(z2r_fluxes, 'Sz_demand_total')
+      longname = 'Total water demand from IAC'
+      stdname  = 'iac_demand_total'
+      units    = 'm3 year-1'
+      attname  = 'Sz_demand_total'
+      call metadata_set(attname, longname, stdname, units)
+
+      call seq_flds_add(z2r_fluxes, 'Sz_consump_frac')
+      longname = 'Consumptive fraction of water demand'
+      stdname  = 'iac_consump_frac'
+      units    = '1'
+      attname  = 'Sz_consump_frac'
+      call metadata_set(attname, longname, stdname, units)
+    endif
+
     if (rof2ocn_nutrients) then
        call seq_flds_add(r2x_fluxes,'Forr_rofDIN')
        call seq_flds_add(x2o_fluxes,'Foxx_rofDIN')
@@ -4123,6 +4216,7 @@ contains
     seq_flds_x2w_states = trim(x2w_states)
     seq_flds_x2z_states = trim(x2z_states)
     seq_flds_z2x_states = trim(z2x_states)
+    seq_flds_r2z_states = trim(r2z_states)
 
     seq_flds_dom_other  = trim(dom_other )
     seq_flds_a2x_fluxes = trim(a2x_fluxes)
@@ -4150,6 +4244,7 @@ contains
     seq_flds_x2w_fluxes = trim(x2w_fluxes)
     seq_flds_z2x_fluxes = trim(z2x_fluxes)
     seq_flds_x2z_fluxes = trim(x2z_fluxes)
+    seq_flds_z2r_fluxes = trim(z2r_fluxes)
     seq_flds_r2o_liq_fluxes = trim(r2o_liq_fluxes)
     seq_flds_r2o_ice_fluxes = trim(r2o_ice_fluxes)
     seq_flds_o2x_states_to_rof = trim(o2x_states_to_rof)
