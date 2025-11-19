@@ -4470,7 +4470,23 @@ contains
         THeat%Tt_avg = 273.15_r8
         allocate (THeat%Tr_avg(begr:endr))
         THeat%Tr_avg = 273.15_r8
-        
+
+        ! fluxes for export to atmosphere (river-atmosphere coupling)
+        allocate (THeat%evap_heat(begr:endr))
+        THeat%evap_heat = 0._r8
+        allocate (THeat%sen_heat(begr:endr))
+        THeat%sen_heat = 0._r8
+        allocate (THeat%lat_heat(begr:endr))
+        THeat%lat_heat = 0._r8
+        allocate (THeat%lwup_heat(begr:endr))
+        THeat%lwup_heat = 0._r8
+        allocate (THeat%Triver(begr:endr))
+        THeat%Triver = 273.15_r8
+        allocate (THeat%Tref_heat(begr:endr))
+        THeat%Tref_heat = 273.15_r8
+        allocate (THeat%qref_heat(begr:endr))
+        THeat%qref_heat = 0._r8
+
        ! read the parameters for mosart-heat
         if(endr >= begr) then
             allocate(TPara%t_alpha(begr:endr))    

@@ -82,6 +82,14 @@ module rof_cpl_indices
   integer, public :: index_r2x_Flrr_deficit = 0 ! rof->lnd supply deficit
   integer, public :: index_r2x_Sr_h2orof      = 0  ! rof->lnd floodplain inundation volume
   integer, public :: index_r2x_Sr_frac_h2orof = 0  ! rof->lnd floodplain inundation fraction
+  ! river-atmosphere coupling indices
+  integer, public :: index_r2x_Frra_evap = 0    ! rof->atm evaporation flux
+  integer, public :: index_r2x_Frra_sen = 0     ! rof->atm sensible heat flux
+  integer, public :: index_r2x_Frra_lat = 0     ! rof->atm latent heat flux
+  integer, public :: index_r2x_Frra_lwup = 0    ! rof->atm upward longwave radiation
+  integer, public :: index_r2x_Sr_t = 0         ! rof->atm river surface temperature
+  integer, public :: index_r2x_Sr_tref = 0      ! rof->atm river 2m reference temperature
+  integer, public :: index_r2x_Sr_qref = 0      ! rof->atm river 2m reference specific humidity
   integer, public :: nflds_r2x = 0
 
 !=======================================================================
@@ -100,8 +108,8 @@ contains
     !
     ! !USES:
     use seq_flds_mod  , only: seq_flds_r2x_fields, seq_flds_x2r_fields, rof_heat, &
-                              rof2ocn_nutrients, lnd_rof_two_way, ocn_rof_two_way, &
-                              rof_sed
+                              rof2ocn_nutrients, lnd_rof_two_way, rof_atm_coupling, &
+                              ocn_rof_two_way, rof_sed
     use mct_mod       , only: mct_aVect, mct_aVect_init, mct_avect_indexra, &
                               mct_aVect_clean, mct_avect_nRattr
     !
@@ -185,7 +193,17 @@ contains
       index_r2x_Sr_h2orof       = mct_avect_indexra(avtmp,'Sr_h2orof')
       index_r2x_Sr_frac_h2orof  = mct_avect_indexra(avtmp,'Sr_frac_h2orof')
     endif
-    
+
+    if (rof_atm_coupling) then
+      index_r2x_Frra_evap  = mct_avect_indexra(avtmp,'Frra_evap')
+      index_r2x_Frra_sen   = mct_avect_indexra(avtmp,'Frra_sen')
+      index_r2x_Frra_lat   = mct_avect_indexra(avtmp,'Frra_lat')
+      index_r2x_Frra_lwup  = mct_avect_indexra(avtmp,'Frra_lwup')
+      index_r2x_Sr_t       = mct_avect_indexra(avtmp,'Sr_t')
+      index_r2x_Sr_tref    = mct_avect_indexra(avtmp,'Sr_tref')
+      index_r2x_Sr_qref    = mct_avect_indexra(avtmp,'Sr_qref')
+    endif
+
     nflds_r2x = mct_avect_nRattr(avtmp)
 
     call mct_aVect_clean(avtmp)

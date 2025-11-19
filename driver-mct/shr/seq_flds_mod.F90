@@ -160,6 +160,7 @@ module seq_flds_mod
   logical            :: atm_gustiness       ! .true. if the atmosphere model produces gustiness
   logical            :: rof2ocn_nutrients   ! .true. if the runoff model passes nutrient fields to the ocn
   logical            :: lnd_rof_two_way     ! .true. if land-river two-way coupling turned on
+  logical            :: rof_atm_coupling    ! .true. if river-atmosphere coupling turned on (requires rof_heat=.true.)
   logical            :: ocn_rof_two_way     ! .true. if river-ocean two-way coupling turned on
   logical            :: rof_sed             ! .true. if river model includes sediment
   logical            :: add_iac_to_cplstate  ! .true. if iac fields are added to coupler history files
@@ -409,7 +410,7 @@ contains
          flds_co2a, flds_co2b, flds_co2c, flds_co2_dmsa, flds_wiso, flds_polar, flds_tf, &
          glc_nec, glc_nzoc, ice_ncat, seq_flds_i2o_per_cat, flds_bgc_oi, &
          nan_check_component_fields, rof_heat, atm_flux_method, atm_gustiness, &
-         rof2ocn_nutrients, lnd_rof_two_way, ocn_rof_two_way, rof_sed, &
+         rof2ocn_nutrients, lnd_rof_two_way, rof_atm_coupling, ocn_rof_two_way, rof_sed, &
          wav_ocn_coup, add_iac_to_cplstate
 
     ! user specified new fields
@@ -453,6 +454,7 @@ contains
        atm_gustiness = .false.
        rof2ocn_nutrients = .false.
        lnd_rof_two_way   = .false.
+       rof_atm_coupling  = .false.
        ocn_rof_two_way   = .false.
        rof_sed   = .false.
        wav_ocn_coup = 'none'
@@ -1124,6 +1126,7 @@ contains
     call seq_flds_add(x2a_states,'Sf_ifrac')
     call seq_flds_add(x2a_states,'Sf_ofrac')
     if(add_iac_to_cplstate)call seq_flds_add(x2a_states,'Sf_zfrac')
+    if(rof_atm_coupling)call seq_flds_add(x2a_states,'Sf_rfrac')
     longname = 'Surface land fraction'
     stdname  = 'land_area_fraction'
     units    = '1'
@@ -1136,6 +1139,10 @@ contains
     longname = 'Surface ocean fraction'
     stdname  = 'sea_area_fraction'
     attname  = 'Sf_ofrac'
+    call metadata_set(attname, longname, stdname, units)
+    longname = 'Surface river fraction'
+    stdname  = 'river_area_fraction'
+    attname  = 'Sf_rfrac'
     call metadata_set(attname, longname, stdname, units)
     longname = 'Surface iac fraction'
     stdname  = 'iac_area_fraction'
@@ -2417,6 +2424,65 @@ contains
       stdname  = 'floodplain_inundation_infiltration'
       units    = 'mm/s'
       attname  = 'inundinf'
+      call metadata_set(attname, longname, stdname, units)
+    endif
+
+    ! river-atmosphere coupling (requires rof_heat = .true.)
+    if (rof_atm_coupling) then
+      call seq_flds_add(r2x_fluxes, 'Frra_evap')
+      call seq_flds_add(x2a_fluxes, 'Frra_evap')
+      longname = 'Evaporation flux from river to atmosphere'
+      stdname  = 'river_water_evaporation_flux'
+      units    = 'kg m-2 s-1'
+      attname  = 'Frra_evap'
+      call metadata_set(attname, longname, stdname, units)
+
+      call seq_flds_add(r2x_fluxes, 'Frra_sen')
+      call seq_flds_add(x2a_fluxes, 'Frra_sen')
+      longname = 'Sensible heat flux from river to atmosphere'
+      stdname  = 'river_upward_sensible_heat_flux'
+      units    = 'W m-2'
+      attname  = 'Frra_sen'
+      call metadata_set(attname, longname, stdname, units)
+
+      call seq_flds_add(r2x_fluxes, 'Frra_lat')
+      call seq_flds_add(x2a_fluxes, 'Frra_lat')
+      longname = 'Latent heat flux from river to atmosphere'
+      stdname  = 'river_upward_latent_heat_flux'
+      units    = 'W m-2'
+      attname  = 'Frra_lat'
+      call metadata_set(attname, longname, stdname, units)
+
+      call seq_flds_add(r2x_fluxes, 'Frra_lwup')
+      call seq_flds_add(x2a_fluxes, 'Frra_lwup')
+      longname = 'Upward longwave radiation from river'
+      stdname  = 'river_upwelling_longwave_flux_in_air'
+      units    = 'W m-2'
+      attname  = 'Frra_lwup'
+      call metadata_set(attname, longname, stdname, units)
+
+      call seq_flds_add(r2x_states, 'Sr_t')
+      call seq_flds_add(x2a_states, 'Sr_t')
+      longname = 'River surface temperature'
+      stdname  = 'river_surface_temperature'
+      units    = 'K'
+      attname  = 'Sr_t'
+      call metadata_set(attname, longname, stdname, units)
+
+      call seq_flds_add(r2x_states, 'Sr_tref')
+      call seq_flds_add(x2a_states, 'Sr_tref')
+      longname = 'River 2m reference temperature'
+      stdname  = 'river_reference_temperature'
+      units    = 'K'
+      attname  = 'Sr_tref'
+      call metadata_set(attname, longname, stdname, units)
+
+      call seq_flds_add(r2x_states, 'Sr_qref')
+      call seq_flds_add(x2a_states, 'Sr_qref')
+      longname = 'River 2m reference specific humidity'
+      stdname  = 'river_reference_specific_humidity'
+      units    = 'kg kg-1'
+      attname  = 'Sr_qref'
       call metadata_set(attname, longname, stdname, units)
     endif
 

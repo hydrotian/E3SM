@@ -516,7 +516,16 @@ module RunoffMod
 
       real(r8), pointer :: Tt_avg(:)      ! average temperature of subnetwork channel water, [K], for output purpose
       real(r8), pointer :: Tr_avg(:)      ! average temperature of main channel water, [K], for output purpose
-      
+
+      ! fluxes for export to atmosphere (river-atmosphere coupling)
+      real(r8), pointer :: evap_heat(:)   ! evaporation flux to atmosphere, [kg/m2/s]
+      real(r8), pointer :: sen_heat(:)    ! sensible heat flux to atmosphere (per unit grid area), [W/m2]
+      real(r8), pointer :: lat_heat(:)    ! latent heat flux to atmosphere (per unit grid area), [W/m2]
+      real(r8), pointer :: lwup_heat(:)   ! upward longwave radiation to atmosphere (per unit grid area), [W/m2]
+      real(r8), pointer :: Triver(:)      ! river surface temperature for export, [K]
+      real(r8), pointer :: Tref_heat(:)   ! 2m reference temperature, [K]
+      real(r8), pointer :: qref_heat(:)   ! 2m reference specific humidity, [kg/kg]
+
   end type TstatusFlux_heat
 
  

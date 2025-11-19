@@ -550,5 +550,97 @@ MODULE MOSART_heat_mod
       !write(unit=nio,fmt="((a10),7(e20.11))") theTime, liqWater%yh(ii), liqWater%dwh(ii),liqWater%etin(ii), liqWater%vr(ii), liqWater%erin(ii), liqWater%erout(ii)/(TUnit%area(ii)*TUnit%frac(ii)), liqWater%flow(ii)
   
   end subroutine printTest1
-    
+
+    subroutine calc_atm_fluxes(iunit)
+    ! !DESCRIPTION: calculate fluxes from river to atmosphere for coupling
+    ! This routine converts the heat fluxes (W) to fluxes per unit grid area (W/m2)
+    ! and calculates evaporation from latent heat
+        use shr_const_mod , only : latvap => SHR_CONST_LATVAP, sb => SHR_CONST_STEBOL
+        implicit none
+        integer, intent(in) :: iunit
+
+        real(r8), parameter :: emissivity = 0.97_r8   ! water surface emissivity
+        real(r8), parameter :: riverfrac_default = 0.01_r8  ! default river fraction if not available
+        real(r8) :: grid_area    ! grid cell area (m2)
+        real(r8) :: river_area   ! river surface area (m2)
+        real(r8) :: riverfrac    ! river fraction of grid cell
+        real(r8) :: latvap_local ! latent heat of vaporization (J/kg)
+        real(r8) :: es_river, q_sat  ! for humidity calculation
+
+        grid_area = rtmCTL%area(iunit)  ! m2
+
+        ! Use main channel area if available, otherwise use tributary area
+        ! River area = max of tributary and main channel areas
+        river_area = max(TRunoff%rarea(iunit,nt_nliq), TRunoff%tarea(iunit,nt_nliq))
+
+        ! Calculate river fraction (capped at 10% for safety)
+        if (grid_area > TINYVALUE1) then
+            riverfrac = min(0.1_r8, river_area / grid_area)
+        else
+            riverfrac = 0._r8
+        end if
+
+        ! Latent heat of vaporization (temperature-dependent)
+        ! L = 2.501e6 - 2370*T (T in Celsius)
+        latvap_local = 2.501e6_r8 - 2370._r8 * (THeat%Tr(iunit) - 273.15_r8)
+        if (latvap_local < 2.0e6_r8) latvap_local = 2.0e6_r8  ! lower bound
+
+        ! Calculate fluxes per unit grid area (W/m2 or kg/m2/s)
+        ! Use main channel values if available (preferred), otherwise tributary
+        if (TRunoff%wr(iunit,nt_nliq) > TINYVALUE1) then
+            ! Main channel has water - use main channel fluxes
+            if (grid_area > TINYVALUE1) then
+                THeat%sen_heat(iunit)  = THeat%Hh_r(iunit) / grid_area   ! W/m2
+                THeat%lat_heat(iunit)  = THeat%He_r(iunit) / grid_area   ! W/m2
+                THeat%evap_heat(iunit) = THeat%He_r(iunit) / (grid_area * latvap_local)  ! kg/m2/s
+                ! Upward longwave = emissivity * sigma * T^4
+                THeat%lwup_heat(iunit) = emissivity * sb * (THeat%Tr(iunit)**4) * riverfrac  ! W/m2
+                THeat%Triver(iunit)    = THeat%Tr(iunit)  ! K
+            else
+                THeat%sen_heat(iunit)  = 0._r8
+                THeat%lat_heat(iunit)  = 0._r8
+                THeat%evap_heat(iunit) = 0._r8
+                THeat%lwup_heat(iunit) = 0._r8
+                THeat%Triver(iunit)    = 273.15_r8
+            end if
+        else if (TRunoff%wt(iunit,nt_nliq) > TINYVALUE1) then
+            ! Tributary has water - use tributary fluxes
+            if (grid_area > TINYVALUE1) then
+                THeat%sen_heat(iunit)  = THeat%Hh_t(iunit) / grid_area   ! W/m2
+                THeat%lat_heat(iunit)  = THeat%He_t(iunit) / grid_area   ! W/m2
+                THeat%evap_heat(iunit) = THeat%He_t(iunit) / (grid_area * latvap_local)  ! kg/m2/s
+                THeat%lwup_heat(iunit) = emissivity * sb * (THeat%Tt(iunit)**4) * riverfrac  ! W/m2
+                THeat%Triver(iunit)    = THeat%Tt(iunit)  ! K
+            else
+                THeat%sen_heat(iunit)  = 0._r8
+                THeat%lat_heat(iunit)  = 0._r8
+                THeat%evap_heat(iunit) = 0._r8
+                THeat%lwup_heat(iunit) = 0._r8
+                THeat%Triver(iunit)    = 273.15_r8
+            end if
+        else
+            ! No water - zero fluxes
+            THeat%sen_heat(iunit)  = 0._r8
+            THeat%lat_heat(iunit)  = 0._r8
+            THeat%evap_heat(iunit) = 0._r8
+            THeat%lwup_heat(iunit) = 0._r8
+            THeat%Triver(iunit)    = 273.15_r8
+        end if
+
+        ! Calculate 2m reference temperature and humidity (simple approach)
+        ! For now, use surface values (could be improved with Monin-Obukhov theory)
+        THeat%Tref_heat(iunit) = THeat%Triver(iunit)
+        ! Saturation specific humidity at river surface temperature
+        ! Using simplified Clausius-Clapeyron: es = 611 * exp(17.27*(T-273.15)/(T-35.85))
+        ! Then q = 0.622 * es / (P - 0.378*es)
+        if (THeat%forc_pbot(iunit) > TINYVALUE1) then
+            es_river = 611._r8 * exp(17.27_r8*(THeat%Triver(iunit)-273.15_r8)/(THeat%Triver(iunit)-35.85_r8))
+            q_sat = 0.622_r8 * es_river / (THeat%forc_pbot(iunit) - 0.378_r8*es_river)
+            THeat%qref_heat(iunit) = max(0._r8, min(0.05_r8, q_sat))  ! bound to reasonable values
+        else
+            THeat%qref_heat(iunit) = 0.001_r8  ! small default value
+        end if
+
+    end subroutine calc_atm_fluxes
+
 end MODULE MOSART_heat_mod
