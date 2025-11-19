@@ -3718,7 +3718,11 @@ contains
        if (masterproc) write(iulog,FORMR) trim(subname),' read domainfrac ',minval(Tunit%domainfrac),maxval(Tunit%domainfrac)
        call shr_sys_flush(iulog)
      endif
-     
+
+     ! Initialize river fraction (will be calculated from geometry later)
+     allocate(TUnit%riverfrac(begr:endr))
+     TUnit%riverfrac = 0.0_r8  ! will be calculated after reading river geometry
+
      ! read fdir, convert to mask
      ! fdir <0 ocean, 0=outlet, >0 land
      ! tunit mask is 0=ocean, 1=land, 2=outlet for mosart calcs
@@ -3872,10 +3876,22 @@ contains
      allocate(TUnit%rslpsqrt(begr:endr))  
      TUnit%rslpsqrt = 0._r8
 
-     allocate(TUnit%rwidth(begr:endr))  
+     allocate(TUnit%rwidth(begr:endr))
      ier = pio_inq_varid(ncid, 'rwid', vardesc)
      call pio_read_darray(ncid, vardesc, iodesc_dbl, TUnit%rwidth, ier)
      if (masterproc) write(iulog,FORMR) trim(subname),' read rwidth ',minval(Tunit%rwidth),maxval(Tunit%rwidth)
+     call shr_sys_flush(iulog)
+
+     ! Calculate river fraction from geometry: riverfrac = (rwidth * rlen) / area
+     ! Capped at 10% to avoid unrealistic values
+     do n = rtmCtl%begr, rtmCTL%endr
+        if (TUnit%area(n) > 0._r8 .and. TUnit%rwidth(n) > 0._r8 .and. TUnit%rlen(n) > 0._r8) then
+           TUnit%riverfrac(n) = min(0.10_r8, (TUnit%rwidth(n) * TUnit%rlen(n)) / TUnit%area(n))
+        else
+           TUnit%riverfrac(n) = 0._r8
+        end if
+     end do
+     if (masterproc) write(iulog,FORMR) trim(subname),' calculated riverfrac ',minval(TUnit%riverfrac),maxval(TUnit%riverfrac)
      call shr_sys_flush(iulog)
 
      if (inundflag) then

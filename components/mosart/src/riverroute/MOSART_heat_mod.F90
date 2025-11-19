@@ -560,25 +560,15 @@ MODULE MOSART_heat_mod
         integer, intent(in) :: iunit
 
         real(r8), parameter :: emissivity = 0.97_r8   ! water surface emissivity
-        real(r8), parameter :: riverfrac_default = 0.01_r8  ! default river fraction if not available
         real(r8) :: grid_area    ! grid cell area (m2)
-        real(r8) :: river_area   ! river surface area (m2)
-        real(r8) :: riverfrac    ! river fraction of grid cell
+        real(r8) :: riverfrac    ! river fraction of grid cell (from TUnit)
         real(r8) :: latvap_local ! latent heat of vaporization (J/kg)
         real(r8) :: es_river, q_sat  ! for humidity calculation
 
         grid_area = rtmCTL%area(iunit)  ! m2
 
-        ! Use main channel area if available, otherwise use tributary area
-        ! River area = max of tributary and main channel areas
-        river_area = max(TRunoff%rarea(iunit,nt_nliq), TRunoff%tarea(iunit,nt_nliq))
-
-        ! Calculate river fraction (capped at 10% for safety)
-        if (grid_area > TINYVALUE1) then
-            riverfrac = min(0.1_r8, river_area / grid_area)
-        else
-            riverfrac = 0._r8
-        end if
+        ! Get river fraction from TUnit (calculated from geometry during initialization)
+        riverfrac = TUnit%riverfrac(iunit)
 
         ! Latent heat of vaporization (temperature-dependent)
         ! L = 2.501e6 - 2370*T (T in Celsius)
