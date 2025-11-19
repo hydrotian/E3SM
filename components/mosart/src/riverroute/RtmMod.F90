@@ -52,7 +52,6 @@ module RtmMod
   use MOSARTinund_PreProcs_MOD, only : calc_chnlMannCoe, preprocess_elevProf
   use MOSARTinund_Core_MOD    , only : MOSARTinund_simulate, ManningEq, ChnlFPexchg
   use MOSART_Budgets_mod, only: MOSART_WaterBudget_Extraction, MOSART_WaterBudget_Print, MOSART_WaterBudget_Reset
-  use MOSART_HeatBudgets_mod, only: MOSART_HeatBudget_Reset, MOSART_HeatBudget_Accumulate, MOSART_HeatBudget_Print
   use RtmIO
   use mct_mod
   use perf_mod
@@ -2081,7 +2080,7 @@ contains
 ! !LOCAL VARIABLES:
 !EOP
     integer  :: i, j, n, nr, ns, nt, n2, nf, idam ! indices
-    integer, parameter :: budget_terms_total = 80
+    integer, parameter :: budget_terms_total = 95
     real(r8) :: budget_terms (budget_terms_total,nt_rtm)    ! local budget sums
     real(r8) :: budget_global(budget_terms_total,nt_rtm)    ! global budget sums
 
@@ -2196,6 +2195,24 @@ contains
     ! Accumuluation TERMS
     integer,parameter :: bv_naccum = 80 ! accumulated net budget
 
+    ! Heat/Energy TERMS (for river-atmosphere coupling)
+    ! Heat fluxes (W - power, accumulated over coupling period)
+    integer,parameter :: bh_sw_flux   = 81 ! Shortwave radiation absorbed (W)
+    integer,parameter :: bh_lw_flux   = 82 ! Net longwave radiation (W)
+    integer,parameter :: bh_sens_flux = 83 ! Sensible heat flux (W)
+    integer,parameter :: bh_lat_flux  = 84 ! Latent heat flux (W)
+    integer,parameter :: bh_cond_flux = 85 ! Conductive heat exchange (W)
+    integer,parameter :: bh_adv_flux  = 86 ! Advective heat transport (W)
+    ! Heat states (J - energy content)
+    integer,parameter :: bh_content_i = 87 ! Initial total heat content (J)
+    integer,parameter :: bh_content_f = 88 ! Final total heat content (J)
+    integer,parameter :: bh_main_i    = 89 ! Initial main channel heat (J)
+    integer,parameter :: bh_main_f    = 90 ! Final main channel heat (J)
+    integer,parameter :: bh_trib_i    = 91 ! Initial tributary heat (J)
+    integer,parameter :: bh_trib_f    = 92 ! Final tributary heat (J)
+    ! Water loss from evaporation
+    integer,parameter :: bh_evap_mass = 93 ! Evaporated mass (kg)
+
     !   volume = 2 - 1 + bv_dstor_f - bv_dstor_i
     !   input  = br_qsur + br_qsub + br_qgwl + br_qdto + br_qdem + br_etexch + br_ehexch + br_erexch
     !   output = br_ocnout + br_flood + br_direct + 42
@@ -2219,6 +2236,7 @@ contains
     real(r8) :: hcontent_beg_loc, hmain_beg_loc, htrib_beg_loc  ! Heat content beginning (J)
     real(r8) :: hcontent_end_loc, hmain_end_loc, htrib_end_loc  ! Heat content end (J)
     real(r8) :: evap_mass_loc                                    ! Evaporated mass (kg/s)
+    real(r8) :: net_flux_energy, heat_change, residual          ! Energy conservation check variables
     integer,parameter  :: dbug = 1          ! local debug flag
 !scs
 ! parameters used in negative runoff partitioning algorithm
@@ -2292,9 +2310,6 @@ contains
 
        call t_startf('mosartr_budget')
        call MOSART_WaterBudget_Reset()
-       if (heatflag) then
-          call MOSART_HeatBudget_Reset()
-       end if
 
        do nt = 1,nt_rtm
        do nr = rtmCTL%begr,rtmCTL%endr
@@ -2818,8 +2833,8 @@ contains
       if (rof_atm_coupling) then
          do n = rtmCTL%begr,rtmCTL%endr
             if(rtmCTL%mask(n) .eq. 1 .or. rtmCTL%mask(n) .eq. 3) then
-               ! Store initial heat content before evaporation
-               if (budget_check) then
+               ! Store initial heat content before evaporation (for budget tracking)
+               if (budget_check .and. heatflag) then
                   hmain_beg_loc = calculate_heat_content(n, 'main')
                   htrib_beg_loc = calculate_heat_content(n, 'tributary')
                   hcontent_beg_loc = hmain_beg_loc + htrib_beg_loc
@@ -2829,33 +2844,35 @@ contains
                ! Apply evaporative water removal and cooling
                call apply_evaporation(n, delt_coupling)
 
-               ! Track heat budget if budget checking is enabled
-               if (budget_check) then
+               ! Accumulate heat budget terms into unified budget_terms array
+               if (budget_check .and. heatflag) then
                   hmain_end_loc = calculate_heat_content(n, 'main')
                   htrib_end_loc = calculate_heat_content(n, 'tributary')
                   hcontent_end_loc = hmain_end_loc + htrib_end_loc
 
-                  ! Calculate evaporated mass (kg/s) from latent heat flux
+                  ! Accumulate heat fluxes (W)
+                  budget_terms(bh_sw_flux, nt_nliq)   = budget_terms(bh_sw_flux, nt_nliq)   + THeat%Hsw_r(n) + THeat%Hsw_t(n)
+                  budget_terms(bh_lw_flux, nt_nliq)   = budget_terms(bh_lw_flux, nt_nliq)   + THeat%Hlw_r(n) + THeat%Hlw_t(n)
+                  budget_terms(bh_sens_flux, nt_nliq) = budget_terms(bh_sens_flux, nt_nliq) + THeat%Hs_r(n) + THeat%Hs_t(n)
+                  budget_terms(bh_lat_flux, nt_nliq)  = budget_terms(bh_lat_flux, nt_nliq)  + THeat%He_r(n) + THeat%He_t(n)
+                  budget_terms(bh_cond_flux, nt_nliq) = budget_terms(bh_cond_flux, nt_nliq) + 0._r8  ! Not yet implemented
+                  budget_terms(bh_adv_flux, nt_nliq)  = budget_terms(bh_adv_flux, nt_nliq)  + 0._r8  ! Not yet implemented
+
+                  ! Accumulate heat content states (J)
+                  budget_terms(bh_content_i, nt_nliq) = budget_terms(bh_content_i, nt_nliq) + hcontent_beg_loc
+                  budget_terms(bh_content_f, nt_nliq) = budget_terms(bh_content_f, nt_nliq) + hcontent_end_loc
+                  budget_terms(bh_main_i, nt_nliq)    = budget_terms(bh_main_i, nt_nliq)    + hmain_beg_loc
+                  budget_terms(bh_main_f, nt_nliq)    = budget_terms(bh_main_f, nt_nliq)    + hmain_end_loc
+                  budget_terms(bh_trib_i, nt_nliq)    = budget_terms(bh_trib_i, nt_nliq)    + htrib_beg_loc
+                  budget_terms(bh_trib_f, nt_nliq)    = budget_terms(bh_trib_f, nt_nliq)    + htrib_end_loc
+
+                  ! Accumulate evaporated mass (kg/coupling period)
                   ! Latent heat of vaporization ≈ 2.45e6 J/kg
                   evap_mass_loc = 0._r8
                   if (THeat%He_r(n) < 0._r8 .or. THeat%He_t(n) < 0._r8) then
-                     evap_mass_loc = (-THeat%He_r(n) - THeat%He_t(n)) / 2.45e6_r8
+                     evap_mass_loc = (-THeat%He_r(n) - THeat%He_t(n)) * delt_coupling / 2.45e6_r8
                   end if
-
-                  call MOSART_HeatBudget_Accumulate( &
-                       THeat%Hsw_r(n) + THeat%Hsw_t(n),   & ! SW flux (W)
-                       THeat%Hlw_r(n) + THeat%Hlw_t(n),   & ! LW flux (W)
-                       THeat%Hs_r(n) + THeat%Hs_t(n),     & ! Sensible flux (W)
-                       THeat%He_r(n) + THeat%He_t(n),     & ! Latent flux (W)
-                       0._r8,                              & ! Conductive flux (not yet implemented)
-                       0._r8,                              & ! Advective flux (not yet implemented)
-                       evap_mass_loc,                      & ! Evaporated mass (kg/s)
-                       hcontent_beg_loc,                   & ! Total heat content beginning (J)
-                       hcontent_end_loc,                   & ! Total heat content end (J)
-                       hmain_beg_loc,                      & ! Main channel heat beginning (J)
-                       hmain_end_loc,                      & ! Main channel heat end (J)
-                       htrib_beg_loc,                      & ! Tributary heat beginning (J)
-                       htrib_end_loc)                        ! Tributary heat end (J)
+                  budget_terms(bh_evap_mass, nt_nliq) = budget_terms(bh_evap_mass, nt_nliq) + evap_mass_loc
                end if
             end if
          end do
@@ -3306,10 +3323,57 @@ contains
                  bv_wt_i, bv_wt_f, bv_wr_i, bv_wr_f, bv_wh_i, bv_wh_f, bv_dstor_i, bv_dstor_f, bv_fp_i, bv_fp_f, br_supply,&
                  budget_input, budget_output, budget_other)
                call MOSART_WaterBudget_Print()
-               ! Print heat budget diagnostics if heat tracking is enabled
-               if (heatflag) then
-                  call MOSART_HeatBudget_Print()
-               end if
+
+               ! Print heat budget diagnostics if heat flag is enabled
+               if (heatflag .and. rof_atm_coupling .and. budget_write) then
+                  write(iulog,*)''
+                  write(iulog,*)'=========================================='
+                  write(iulog,*)'RIVER HEAT/ENERGY BUDGET'
+                  write(iulog,*)'=========================================='
+                  write(iulog,'(a,e14.6,a)') ' SW absorbed:     ', budget_global(bh_sw_flux, nt_nliq) * 1.0e-15_r8, ' PW'
+                  write(iulog,'(a,e14.6,a)') ' LW net:          ', budget_global(bh_lw_flux, nt_nliq) * 1.0e-15_r8, ' PW'
+                  write(iulog,'(a,e14.6,a)') ' Sensible (out):  ', budget_global(bh_sens_flux, nt_nliq) * 1.0e-15_r8, ' PW'
+                  write(iulog,'(a,e14.6,a)') ' Latent (out):    ', budget_global(bh_lat_flux, nt_nliq) * 1.0e-15_r8, ' PW'
+                  write(iulog,'(a,e14.6,a)') ' Conductive:      ', budget_global(bh_cond_flux, nt_nliq) * 1.0e-15_r8, ' PW'
+                  write(iulog,'(a,e14.6,a)') ' Advective:       ', budget_global(bh_adv_flux, nt_nliq) * 1.0e-15_r8, ' PW'
+                  write(iulog,*)'------------------------------------------'
+                  write(iulog,'(a,e14.6,a)') ' Net heat flux:   ', &
+                       (budget_global(bh_sw_flux, nt_nliq) + budget_global(bh_lw_flux, nt_nliq) - &
+                        budget_global(bh_sens_flux, nt_nliq) - budget_global(bh_lat_flux, nt_nliq) + &
+                        budget_global(bh_cond_flux, nt_nliq) + budget_global(bh_adv_flux, nt_nliq)) * 1.0e-15_r8, ' PW'
+                  write(iulog,*)'=========================================='
+                  write(iulog,'(a,e14.6,a)') ' Heat content beg:', budget_global(bh_content_i, nt_nliq) * 1.0e-15_r8, ' PJ'
+                  write(iulog,'(a,e14.6,a)') ' Heat content end:', budget_global(bh_content_f, nt_nliq) * 1.0e-15_r8, ' PJ'
+                  write(iulog,'(a,e14.6,a)') ' Heat change (dH):', &
+                       (budget_global(bh_content_f, nt_nliq) - budget_global(bh_content_i, nt_nliq)) * 1.0e-15_r8, ' PJ'
+                  write(iulog,*)'------------------------------------------'
+                  write(iulog,'(a,e14.6,a)') ' Main chnl beg:   ', budget_global(bh_main_i, nt_nliq) * 1.0e-15_r8, ' PJ'
+                  write(iulog,'(a,e14.6,a)') ' Main chnl end:   ', budget_global(bh_main_f, nt_nliq) * 1.0e-15_r8, ' PJ'
+                  write(iulog,'(a,e14.6,a)') ' Tributary beg:   ', budget_global(bh_trib_i, nt_nliq) * 1.0e-15_r8, ' PJ'
+                  write(iulog,'(a,e14.6,a)') ' Tributary end:   ', budget_global(bh_trib_f, nt_nliq) * 1.0e-15_r8, ' PJ'
+                  write(iulog,*)'=========================================='
+                  write(iulog,'(a,e14.6,a)') ' Evaporated mass: ', budget_global(bh_evap_mass, nt_nliq), ' kg'
+                  write(iulog,'(a,e14.6,a)') ' Evaporation:     ', budget_global(bh_evap_mass, nt_nliq) * 1.0e-9_r8, ' Gg (thousand tonnes)'
+                  write(iulog,*)'=========================================='
+
+                  ! Energy conservation check
+                  if (do_budget == 3) then
+                     net_flux_energy = (budget_global(bh_sw_flux, nt_nliq) + budget_global(bh_lw_flux, nt_nliq) - &
+                                       budget_global(bh_sens_flux, nt_nliq) - budget_global(bh_lat_flux, nt_nliq) + &
+                                       budget_global(bh_cond_flux, nt_nliq) + budget_global(bh_adv_flux, nt_nliq)) * delt_coupling
+                     heat_change = budget_global(bh_content_f, nt_nliq) - budget_global(bh_content_i, nt_nliq)
+                     residual = net_flux_energy - heat_change
+                     write(iulog,*)'ENERGY CONSERVATION CHECK:'
+                     write(iulog,'(a,e14.6,a)') ' Net flux * dt:   ', net_flux_energy * 1.0e-15_r8, ' PJ'
+                     write(iulog,'(a,e14.6,a)') ' Heat change:     ', heat_change * 1.0e-15_r8, ' PJ'
+                     write(iulog,'(a,e14.6,a)') ' Residual:        ', residual * 1.0e-15_r8, ' PJ'
+                     if (abs(residual) > 1.0e12_r8) then  ! 1 TJ threshold
+                        write(iulog,*) '***** WARNING: Energy budget residual exceeds 1 TJ *****'
+                     endif
+                     write(iulog,*)'=========================================='
+                  endif
+                  write(iulog,*)''
+               endif
             endif
 
            enddo   ! (do nt = 1,nt_rtm   --Inund.)
