@@ -41,7 +41,7 @@ module mrg_mod
 contains
   !===========================================================================================
 
-  subroutine mrg_x2a_run_mct( cdata_a, l2x_a, o2x_a, xao_a, i2x_a, fractions_a, x2a_a )
+  subroutine mrg_x2a_run_mct( cdata_a, l2x_a, o2x_a, xao_a, i2x_a, r2x_a, fractions_a, x2a_a )
 
     !-----------------------------------------------------------------------
     !
@@ -52,33 +52,37 @@ contains
     type(mct_aVect), intent(in)     :: o2x_a
     type(mct_aVect), intent(in)     :: xao_a
     type(mct_aVect), intent(in)     :: i2x_a
+    type(mct_aVect), intent(in)     :: r2x_a
     type(mct_aVect), intent(in)     :: fractions_a
     type(mct_aVect), intent(inout)  :: x2a_a
     !-----------------------------------------------------------------------
     !
     ! Local workspace
     !
-    real(r8) :: fracl, fraci, fraco
-    integer  :: n,ka,ki,kl,ko,kx,kof,kif,klf
+    real(r8) :: fracl, fraci, fraco, fracr
+    integer  :: n,ka,ki,kl,ko,kx,kof,kif,klf,krf,kr
     integer  :: lsize
     integer  :: index_x2a_Sf_lfrac
     integer  :: index_x2a_Sf_ifrac
     integer  :: index_x2a_Sf_ofrac
+    integer  :: index_x2a_Sf_rfrac
     character(CL) :: field_atm   ! string converted to char
     character(CL) :: field_lnd   ! string converted to char
     character(CL) :: field_ice   ! string converted to char
     character(CL) :: field_xao   ! string converted to char
     character(CL) :: field_ocn   ! string converted to char
+    character(CL) :: field_rof   ! string converted to char
     character(CL) :: itemc_atm   ! string converted to char
     character(CL) :: itemc_lnd   ! string converted to char
     character(CL) :: itemc_ice   ! string converted to char
     character(CL) :: itemc_xao   ! string converted to char
     character(CL) :: itemc_ocn   ! string converted to char
+    character(CL) :: itemc_rof   ! string converted to char
     logical :: iamroot
     logical :: first_time = .true.
-    logical, pointer, save :: lmerge(:),imerge(:),xmerge(:),omerge(:)
-    integer, pointer, save :: lindx(:), iindx(:), oindx(:),xindx(:)
-    integer, save          :: naflds, klflds,niflds,noflds,nxflds
+    logical, pointer, save :: lmerge(:),imerge(:),xmerge(:),omerge(:),rmerge(:)
+    integer, pointer, save :: lindx(:), iindx(:), oindx(:),xindx(:),rindx(:)
+    integer, save          :: naflds, klflds,niflds,noflds,nxflds,nrflds
     !-----------------------------------------------------------------------
     !
     call seq_comm_setptrs(CPLID, iamroot=iamroot)
@@ -90,20 +94,24 @@ contains
        niflds = mct_aVect_nRattr(i2x_a)
        noflds = mct_aVect_nRattr(o2x_a)
        nxflds = mct_aVect_nRattr(xao_a)
+       nrflds = mct_aVect_nRattr(r2x_a)
 
        allocate(lindx(naflds), lmerge(naflds))
        allocate(iindx(naflds), imerge(naflds))
        allocate(xindx(naflds), xmerge(naflds))
        allocate(oindx(naflds), omerge(naflds))
+       allocate(rindx(naflds), rmerge(naflds))
 
        lindx(:) = 0
        iindx(:) = 0
        xindx(:) = 0
        oindx(:) = 0
+       rindx(:) = 0
        lmerge(:)  = .true.
        imerge(:)  = .true.
        xmerge(:)  = .true.
        omerge(:)  = .true.
+       rmerge(:)  = .true.
 
        ! Field naming rules
        ! Only atm states that are Sx_... will be merged
@@ -162,18 +170,29 @@ contains
                 exit
              end if
           end do
+          do kr = 1,nrflds
+             call getfld(kr, r2x_a, field_rof, itemc_rof)
+             if (trim(itemc_atm) == trim(itemc_rof)) then
+                if ((trim(field_atm) == trim(field_rof))) then
+                   if (field_rof(1:1) == 'F') rmerge(ka) = .false.
+                end if
+                rindx(ka) = kr
+                exit
+             end if
+          end do
           if (lindx(ka) == 0) itemc_lnd = 'unset'
           if (iindx(ka) == 0) itemc_ice = 'unset'
           if (xindx(ka) == 0) itemc_xao = 'unset'
           if (oindx(ka) == 0) itemc_ocn = 'unset'
+          if (rindx(ka) == 0) itemc_rof = 'unset'
 
           if (iamroot) then
              write(logunit,10)trim(itemc_atm),trim(itemc_lnd),&
-                  trim(itemc_ice),trim(itemc_xao),trim(itemc_ocn)
+                  trim(itemc_ice),trim(itemc_xao),trim(itemc_ocn),trim(itemc_rof)
 10           format(' ',' atm field: ',a15,', lnd merge: ',a15, &
-                  ', ice merge: ',a15,', xao merge: ',a15,', ocn merge: ',a15)
-             write(logunit, *)'field_atm,lmerge, imerge, xmerge, omerge= ',&
-                  trim(field_atm),lmerge(ka),imerge(ka),xmerge(ka),omerge(ka)
+                  ', ice merge: ',a15,', xao merge: ',a15,', ocn merge: ',a15,', rof merge: ',a15)
+             write(logunit, *)'field_atm,lmerge, imerge, xmerge, omerge, rmerge= ',&
+                  trim(field_atm),lmerge(ka),imerge(ka),xmerge(ka),omerge(ka),rmerge(ka)
           end if
        end do
        first_time = .false.
@@ -188,15 +207,20 @@ contains
     kif=mct_aVect_indexRA(fractions_a,"ifrac")
     klf=mct_aVect_indexRA(fractions_a,"lfrac")
     kof=mct_aVect_indexRA(fractions_a,"ofrac")
+    krf=mct_aVect_indexRA(fractions_a,"rfrac",perrWith='quiet')
     lsize = mct_avect_lsize(x2a_a)
 
     index_x2a_Sf_lfrac = mct_aVect_indexRA(x2a_a,'Sf_lfrac')
     index_x2a_Sf_ifrac = mct_aVect_indexRA(x2a_a,'Sf_ifrac')
     index_x2a_Sf_ofrac = mct_aVect_indexRA(x2a_a,'Sf_ofrac')
+    index_x2a_Sf_rfrac = mct_aVect_indexRA(x2a_a,'Sf_rfrac',perrWith='quiet')
     do n = 1,lsize
        x2a_a%rAttr(index_x2a_Sf_lfrac,n) = fractions_a%Rattr(klf,n)
        x2a_a%rAttr(index_x2a_Sf_ifrac,n) = fractions_a%Rattr(kif,n)
        x2a_a%rAttr(index_x2a_Sf_ofrac,n) = fractions_a%Rattr(kof,n)
+       if (index_x2a_Sf_rfrac > 0 .and. krf > 0) then
+          x2a_a%rAttr(index_x2a_Sf_rfrac,n) = fractions_a%Rattr(krf,n)
+       end if
     end do
 
     ! Copy attributes that do not need to be merged
@@ -207,6 +231,7 @@ contains
     call mct_aVect_copy(aVin=o2x_a, aVout=x2a_a, vector=mct_usevector)
     call mct_aVect_copy(aVin=i2x_a, aVout=x2a_a, vector=mct_usevector)
     call mct_aVect_copy(aVin=xao_a, aVout=x2a_a, vector=mct_usevector)
+    call mct_aVect_copy(aVin=r2x_a, aVout=x2a_a, vector=mct_usevector)
 
     ! If flux to atm is coming only from the ocean (based on field being in o2x_a) -
     ! -- then scale by both ocean and ice fraction
@@ -218,6 +243,11 @@ contains
           fracl = fractions_a%Rattr(klf,n)
           fraci = fractions_a%Rattr(kif,n)
           fraco = fractions_a%Rattr(kof,n)
+          if (krf > 0) then
+             fracr = fractions_a%Rattr(krf,n)
+          else
+             fracr = 0._r8
+          end if
           if (lindx(ka) > 0 .and. fracl > 0._r8) then
              if (lmerge(ka)) then
                 x2a_a%rAttr(ka,n) = x2a_a%rAttr(ka,n) + l2x_a%rAttr(lindx(ka),n) * fracl
@@ -247,6 +277,13 @@ contains
                 !--- NOTE: This IS using the ocean fields and ice fraction !! ---
                 x2a_a%rAttr(ka,n) = o2x_a%rAttr(oindx(ka),n) * fraci
                 x2a_a%rAttr(ka,n) = x2a_a%rAttr(ka,n) + o2x_a%rAttr(oindx(ka),n) * fraco
+             end if
+          end if
+          if (rindx(ka) > 0 .and. fracr > 0._r8) then
+             if (rmerge(ka)) then
+                x2a_a%rAttr(ka,n) = x2a_a%rAttr(ka,n) + r2x_a%rAttr(rindx(ka),n) * fracr
+             else
+                x2a_a%rAttr(ka,n) = r2x_a%rAttr(rindx(ka),n) * fracr
              end if
           end if
        end do

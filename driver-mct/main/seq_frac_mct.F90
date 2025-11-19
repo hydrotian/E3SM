@@ -568,6 +568,13 @@ iamroot = seq_comm_iamroot(CPLID)
        mapper_l2r => prep_rof_get_mapper_Fl2r()
        call seq_map_map(mapper_l2r, fractions_l, fractions_r, fldlist='lfrac:lfrin', norm=.false., &
             omit_nonlinear=.true.)
+       ! Map river fraction from river grid to atmosphere grid
+       ! River is on land grid, so use land-to-atm flux mapper
+       if (atm_present) then
+          mapper_l2a => prep_atm_get_mapper_Fl2a()
+          call seq_map_map(mapper_l2a, fractions_r, fractions_a, fldlist='rfrac', norm=.false., &
+               omit_nonlinear=.true.)
+       endif
     endif
     if (lnd_present .and. glc_present) then
        mapper_l2g => prep_glc_get_mapper_Fl2g()
