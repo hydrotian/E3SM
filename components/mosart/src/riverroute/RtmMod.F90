@@ -14,7 +14,7 @@ module RtmMod
   use shr_const_mod   , only : SHR_CONST_PI, SHR_CONST_CDAY
   use rof_cpl_indices , only : nt_rtm, rtm_tracers, KW, DW
   use seq_flds_mod    , only : rof_sed, rof_atm_coupling
-  use MOSART_heat_mod , only : calc_atm_fluxes
+  use MOSART_heat_mod , only : calc_atm_fluxes, apply_evaporation, calculate_heat_content
   use RtmSpmd         , only : masterproc, npes, iam, mpicom_rof, ROFID, mastertask, &
                                MPI_REAL8,MPI_INTEGER,MPI_CHARACTER,MPI_LOGICAL,MPI_MAX
   use RtmVar          , only : re, spval, rtmlon, rtmlat, iulog, ice_runoff, &
@@ -52,6 +52,7 @@ module RtmMod
   use MOSARTinund_PreProcs_MOD, only : calc_chnlMannCoe, preprocess_elevProf
   use MOSARTinund_Core_MOD    , only : MOSARTinund_simulate, ManningEq, ChnlFPexchg
   use MOSART_Budgets_mod, only: MOSART_WaterBudget_Extraction, MOSART_WaterBudget_Print, MOSART_WaterBudget_Reset
+  use MOSART_HeatBudgets_mod, only: MOSART_HeatBudget_Reset, MOSART_HeatBudget_Accumulate, MOSART_HeatBudget_Print
   use RtmIO
   use mct_mod
   use perf_mod
@@ -2214,6 +2215,10 @@ contains
     character(len=256) :: filer             ! restart file name
     integer  :: cnt                         ! counter for gridcells
     integer  :: ier                         ! error code
+    ! Heat budget tracking variables
+    real(r8) :: hcontent_beg_loc, hmain_beg_loc, htrib_beg_loc  ! Heat content beginning (J)
+    real(r8) :: hcontent_end_loc, hmain_end_loc, htrib_end_loc  ! Heat content end (J)
+    real(r8) :: evap_mass_loc                                    ! Evaporated mass (kg/s)
     integer,parameter  :: dbug = 1          ! local debug flag
 !scs
 ! parameters used in negative runoff partitioning algorithm
@@ -2287,6 +2292,9 @@ contains
 
        call t_startf('mosartr_budget')
        call MOSART_WaterBudget_Reset()
+       if (heatflag) then
+          call MOSART_HeatBudget_Reset()
+       end if
 
        do nt = 1,nt_rtm
        do nr = rtmCTL%begr,rtmCTL%endr
@@ -2810,7 +2818,45 @@ contains
       if (rof_atm_coupling) then
          do n = rtmCTL%begr,rtmCTL%endr
             if(rtmCTL%mask(n) .eq. 1 .or. rtmCTL%mask(n) .eq. 3) then
+               ! Store initial heat content before evaporation
+               if (budget_check) then
+                  hmain_beg_loc = calculate_heat_content(n, 'main')
+                  htrib_beg_loc = calculate_heat_content(n, 'tributary')
+                  hcontent_beg_loc = hmain_beg_loc + htrib_beg_loc
+               end if
+
                call calc_atm_fluxes(n)
+               ! Apply evaporative water removal and cooling
+               call apply_evaporation(n, delt_coupling)
+
+               ! Track heat budget if budget checking is enabled
+               if (budget_check) then
+                  hmain_end_loc = calculate_heat_content(n, 'main')
+                  htrib_end_loc = calculate_heat_content(n, 'tributary')
+                  hcontent_end_loc = hmain_end_loc + htrib_end_loc
+
+                  ! Calculate evaporated mass (kg/s) from latent heat flux
+                  ! Latent heat of vaporization ≈ 2.45e6 J/kg
+                  evap_mass_loc = 0._r8
+                  if (THeat%He_r(n) < 0._r8 .or. THeat%He_t(n) < 0._r8) then
+                     evap_mass_loc = (-THeat%He_r(n) - THeat%He_t(n)) / 2.45e6_r8
+                  end if
+
+                  call MOSART_HeatBudget_Accumulate( &
+                       THeat%Hsw_r(n) + THeat%Hsw_t(n),   & ! SW flux (W)
+                       THeat%Hlw_r(n) + THeat%Hlw_t(n),   & ! LW flux (W)
+                       THeat%Hs_r(n) + THeat%Hs_t(n),     & ! Sensible flux (W)
+                       THeat%He_r(n) + THeat%He_t(n),     & ! Latent flux (W)
+                       0._r8,                              & ! Conductive flux (not yet implemented)
+                       0._r8,                              & ! Advective flux (not yet implemented)
+                       evap_mass_loc,                      & ! Evaporated mass (kg/s)
+                       hcontent_beg_loc,                   & ! Total heat content beginning (J)
+                       hcontent_end_loc,                   & ! Total heat content end (J)
+                       hmain_beg_loc,                      & ! Main channel heat beginning (J)
+                       hmain_end_loc,                      & ! Main channel heat end (J)
+                       htrib_beg_loc,                      & ! Tributary heat beginning (J)
+                       htrib_end_loc)                        ! Tributary heat end (J)
+               end if
             end if
          end do
       end if
@@ -3260,6 +3306,10 @@ contains
                  bv_wt_i, bv_wt_f, bv_wr_i, bv_wr_f, bv_wh_i, bv_wh_f, bv_dstor_i, bv_dstor_f, bv_fp_i, bv_fp_f, br_supply,&
                  budget_input, budget_output, budget_other)
                call MOSART_WaterBudget_Print()
+               ! Print heat budget diagnostics if heat tracking is enabled
+               if (heatflag) then
+                  call MOSART_HeatBudget_Print()
+               end if
             endif
 
            enddo   ! (do nt = 1,nt_rtm   --Inund.)

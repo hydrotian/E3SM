@@ -633,4 +633,110 @@ MODULE MOSART_heat_mod
 
     end subroutine calc_atm_fluxes
 
+    !-----------------------------------------------------------------------
+    subroutine apply_evaporation(iunit, theDeltaT)
+    ! !DESCRIPTION: Remove evaporated water from channels and apply evaporative cooling
+    ! This subroutine should be called after heat flux calculations
+        use shr_const_mod , only : latvap => SHR_CONST_LATVAP, cpwat => SHR_CONST_CPWAT
+        implicit none
+        integer, intent(in) :: iunit
+        real(r8), intent(in) :: theDeltaT  ! time step in seconds
+
+        real(r8) :: evap_mass_r, evap_mass_t  ! evaporated mass (kg) for main channel and tributary
+        real(r8) :: evap_volume_r, evap_volume_t  ! evaporated volume (m3)
+        real(r8) :: latvap_local  ! latent heat of vaporization (J/kg)
+        real(r8) :: cooling_r, cooling_t  ! evaporative cooling (K)
+        real(r8) :: heat_capacity_r, heat_capacity_t  ! heat capacity of water in channel (J/K)
+        real(r8), parameter :: rho_water = 1000._r8  ! water density (kg/m3)
+        real(r8), parameter :: min_depth = 0.001_r8   ! minimum depth to allow evaporation (m)
+
+        ! Temperature-dependent latent heat: L = 2.501e6 - 2370*T (T in Celsius)
+        latvap_local = 2.501e6_r8 - 2370._r8 * (THeat%Tr(iunit) - 273.15_r8)
+        if (latvap_local < 2.0e6_r8) latvap_local = 2.0e6_r8
+
+        ! Main channel evaporation
+        if (TRunoff%wr(iunit,nt_nliq) > TINYVALUE1 .and. THeat%He_r(iunit) < 0._r8) then
+            ! Calculate evaporated mass (kg) over time step
+            ! He_r is negative for evaporation (energy leaving water)
+            evap_mass_r = -THeat%He_r(iunit) * theDeltaT / latvap_local
+
+            ! Convert to volume (m3)
+            evap_volume_r = evap_mass_r / rho_water
+
+            ! Don't evaporate more than available water (limit to 50% of storage for stability)
+            evap_volume_r = min(evap_volume_r, 0.5_r8 * TRunoff%wr(iunit,nt_nliq))
+
+            ! Remove water from main channel storage
+            TRunoff%wr(iunit,nt_nliq) = TRunoff%wr(iunit,nt_nliq) - evap_volume_r
+
+            ! Apply evaporative cooling
+            ! Q = m * cp * dT,  so dT = Q / (m * cp)
+            if (TRunoff%wr(iunit,nt_nliq) > TINYVALUE1) then
+                heat_capacity_r = TRunoff%wr(iunit,nt_nliq) * rho_water * cpwat
+                cooling_r = -THeat%He_r(iunit) * theDeltaT / heat_capacity_r
+                THeat%Tr(iunit) = THeat%Tr(iunit) - cooling_r
+                ! Bound temperature to reasonable range
+                THeat%Tr(iunit) = max(273.15_r8, min(323.15_r8, THeat%Tr(iunit)))
+            end if
+        end if
+
+        ! Tributary evaporation
+        if (TRunoff%wt(iunit,nt_nliq) > TINYVALUE1 .and. THeat%He_t(iunit) < 0._r8) then
+            evap_mass_t = -THeat%He_t(iunit) * theDeltaT / latvap_local
+            evap_volume_t = evap_mass_t / rho_water
+            evap_volume_t = min(evap_volume_t, 0.5_r8 * TRunoff%wt(iunit,nt_nliq))
+
+            TRunoff%wt(iunit,nt_nliq) = TRunoff%wt(iunit,nt_nliq) - evap_volume_t
+
+            if (TRunoff%wt(iunit,nt_nliq) > TINYVALUE1) then
+                heat_capacity_t = TRunoff%wt(iunit,nt_nliq) * rho_water * cpwat
+                cooling_t = -THeat%He_t(iunit) * theDeltaT / heat_capacity_t
+                THeat%Tt(iunit) = THeat%Tt(iunit) - cooling_t
+                THeat%Tt(iunit) = max(273.15_r8, min(323.15_r8, THeat%Tt(iunit)))
+            end if
+        end if
+
+    end subroutine apply_evaporation
+
+!-----------------------------------------------------------------------
+    function calculate_heat_content(iunit, channel) result(heat_content)
+! !DESCRIPTION: Calculate heat content (J) for a river channel or tributary
+! Heat content = mass * specific_heat * temperature
+! where mass is in kg, specific heat is J/(kg*K), temperature is in K
+    use shr_const_mod , only : cpwat => SHR_CONST_CPWAT
+    implicit none
+    integer, intent(in) :: iunit
+    character(len=*), intent(in) :: channel  ! 'main' or 'tributary'
+    real(r8) :: heat_content
+
+    real(r8), parameter :: rho_water = 1000._r8  ! water density (kg/m3)
+    real(r8) :: water_volume  ! m3
+    real(r8) :: water_mass    ! kg
+    real(r8) :: temperature   ! K
+    real(r8) :: T_ref         ! reference temperature (K) - use freezing point
+
+    T_ref = 273.15_r8  ! freezing point as reference
+
+    heat_content = 0._r8
+
+    if (channel == 'main') then
+        if (TRunoff%wr(iunit,nt_nliq) > TINYVALUE1) then
+            water_volume = TRunoff%wr(iunit,nt_nliq)
+            water_mass = water_volume * rho_water
+            temperature = THeat%Tr(iunit)
+            ! Heat content relative to freezing point
+            heat_content = water_mass * cpwat * (temperature - T_ref)
+        end if
+    elseif (channel == 'tributary') then
+        if (TRunoff%wt(iunit,nt_nliq) > TINYVALUE1) then
+            water_volume = TRunoff%wt(iunit,nt_nliq)
+            water_mass = water_volume * rho_water
+            temperature = THeat%Tt(iunit)
+            ! Heat content relative to freezing point
+            heat_content = water_mass * cpwat * (temperature - T_ref)
+        end if
+    end if
+
+    end function calculate_heat_content
+
 end MODULE MOSART_heat_mod

@@ -680,15 +680,15 @@ contains
           if (lindx(ka) > 0) then
              if (lstate(ka)) then
                 if (lmerge(ka)) then
-                   mrgstr(ka) = trim(mrgstr(ka))//' + '//trim(fracstr_st)//'*l2x%'//trim(field_lnd(lindx(ka)))
+                   mrgstr(ka) = trim(mrgstr(ka))//' + ('//trim(fracstr_st)//'-rfrac)*l2x%'//trim(field_lnd(lindx(ka)))
                 else
-                   mrgstr(ka) = trim(mrgstr(ka))//' = '//trim(fracstr_st)//'*l2x%'//trim(field_lnd(lindx(ka)))
+                   mrgstr(ka) = trim(mrgstr(ka))//' = ('//trim(fracstr_st)//'-rfrac)*l2x%'//trim(field_lnd(lindx(ka)))
                 end if
              else
                 if (lmerge(ka)) then
-                   mrgstr(ka) = trim(mrgstr(ka))//' + '//trim(fracstr)//'*l2x%'//trim(field_lnd(lindx(ka)))
+                   mrgstr(ka) = trim(mrgstr(ka))//' + ('//trim(fracstr)//'-rfrac)*l2x%'//trim(field_lnd(lindx(ka)))
                 else
-                   mrgstr(ka) = trim(mrgstr(ka))//' = '//trim(fracstr)//'*l2x%'//trim(field_lnd(lindx(ka)))
+                   mrgstr(ka) = trim(mrgstr(ka))//' = ('//trim(fracstr)//'-rfrac)*l2x%'//trim(field_lnd(lindx(ka)))
                 end if
              end if
           end if
@@ -741,18 +741,19 @@ contains
           else
              fracr = 0._r8
           end if
-          if (lindx(ka) > 0 .and. fracl > 0._r8) then
+          ! Land fluxes must be scaled by (lfrac - rfrac) to account for rivers occupying part of land
+          if (lindx(ka) > 0 .and. (fracl - fracr) > 0._r8) then
              if (lstate(ka)) then
                 if (lmerge(ka)) then
-                   x2a_a%rAttr(ka,n) = x2a_a%rAttr(ka,n) + l2x_a%rAttr(lindx(ka),n) * fracl_st
+                   x2a_a%rAttr(ka,n) = x2a_a%rAttr(ka,n) + l2x_a%rAttr(lindx(ka),n) * (fracl_st - fracr)
                 else
-                   x2a_a%rAttr(ka,n) = l2x_a%rAttr(lindx(ka),n) * fracl_st
+                   x2a_a%rAttr(ka,n) = l2x_a%rAttr(lindx(ka),n) * (fracl_st - fracr)
                 end if
              else
                 if (lmerge(ka)) then
-                   x2a_a%rAttr(ka,n) = x2a_a%rAttr(ka,n) + l2x_a%rAttr(lindx(ka),n) * fracl
+                   x2a_a%rAttr(ka,n) = x2a_a%rAttr(ka,n) + l2x_a%rAttr(lindx(ka),n) * (fracl - fracr)
                 else
-                   x2a_a%rAttr(ka,n) = l2x_a%rAttr(lindx(ka),n) * fracl
+                   x2a_a%rAttr(ka,n) = l2x_a%rAttr(lindx(ka),n) * (fracl - fracr)
                 end if
              end if
           end if
