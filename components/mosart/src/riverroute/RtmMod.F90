@@ -13,7 +13,8 @@ module RtmMod
   use shr_sys_mod     , only : shr_sys_flush
   use shr_const_mod   , only : SHR_CONST_PI, SHR_CONST_CDAY
   use rof_cpl_indices , only : nt_rtm, rtm_tracers, KW, DW
-  use seq_flds_mod    , only : rof_sed
+  use seq_flds_mod    , only : rof_sed, rof_atm_coupling
+  use MOSART_heat_mod , only : calc_atm_fluxes
   use RtmSpmd         , only : masterproc, npes, iam, mpicom_rof, ROFID, mastertask, &
                                MPI_REAL8,MPI_INTEGER,MPI_CHARACTER,MPI_LOGICAL,MPI_MAX
   use RtmVar          , only : re, spval, rtmlon, rtmlat, iulog, ice_runoff, &
@@ -2790,7 +2791,7 @@ contains
       rtmCTL%Tt      = THeat%Tt
       rtmCTL%Tr      = THeat%Tr
       rtmCTL%Ha_rout   = THeat%Ha_rout
-    
+
       do n = rtmCTL%begr,rtmCTL%endr
          if(rtmCTL%mask(n) .eq. 1 .or. rtmCTL%mask(n) .eq. 3) then
             rtmCTL%templand_Tqsur(n) = rtmCTL%templand_Tqsur(n) / float(nsub)
@@ -2804,6 +2805,15 @@ contains
             rtmCTL%templand_Tchanr(n) = spval
          end if
       end do
+
+      ! Calculate fluxes for export to atmosphere (if river-atmosphere coupling enabled)
+      if (rof_atm_coupling) then
+         do n = rtmCTL%begr,rtmCTL%endr
+            if(rtmCTL%mask(n) .eq. 1 .or. rtmCTL%mask(n) .eq. 3) then
+               call calc_atm_fluxes(n)
+            end if
+         end do
+      end if
     end if
 
     do nt = 1,nt_rtm

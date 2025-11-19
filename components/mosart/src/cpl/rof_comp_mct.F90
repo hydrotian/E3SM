@@ -963,6 +963,21 @@ contains
       enddo
     endif
 
+    ! Export river-to-atmosphere fluxes (if river-atmosphere coupling enabled)
+    if ( index_r2x_Frra_evap > 0 ) then
+      ni = 0
+      do n = rtmCTL%begr, rtmCTL%endr
+        ni = ni + 1
+        r2x_r%rattr(index_r2x_Frra_evap,ni)  = THeat%evap_heat(n)   ! kg/m2/s
+        r2x_r%rattr(index_r2x_Frra_sen,ni)   = THeat%sen_heat(n)    ! W/m2
+        r2x_r%rattr(index_r2x_Frra_lat,ni)   = THeat%lat_heat(n)    ! W/m2
+        r2x_r%rattr(index_r2x_Frra_lwup,ni)  = THeat%lwup_heat(n)   ! W/m2
+        r2x_r%rattr(index_r2x_Sr_t,ni)       = THeat%Triver(n)      ! K
+        r2x_r%rattr(index_r2x_Sr_tref,ni)    = THeat%Tref_heat(n)   ! K
+        r2x_r%rattr(index_r2x_Sr_qref,ni)    = THeat%qref_heat(n)   ! kg/kg
+      enddo
+    endif
+
   end subroutine rof_export_mct
 
 #ifdef HAVE_MOAB
